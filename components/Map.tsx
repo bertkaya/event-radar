@@ -1,11 +1,12 @@
 // components/Map.tsx
 'use client'
 
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet'
+import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import L from 'leaflet'
+import { useEffect } from 'react'
 
-// İkon hatası düzeltmesi
+// İkon düzeltmesi
 const icon = L.icon({
   iconUrl: "https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png",
   iconRetinaUrl: "https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon-2x.png",
@@ -15,22 +16,39 @@ const icon = L.icon({
   popupAnchor: [1, -34],
 })
 
-export default function Map({ events }: { events: any[] }) {
-  // Harita merkezi: Beyoğlu/İstanbul
-  const center = [41.0258, 28.9784]
+// BU YENİ: Haritayı uçuran ufak bileşen
+function MapController({ selectedEvent }: { selectedEvent: any }) {
+  const map = useMap()
 
+  useEffect(() => {
+    if (selectedEvent) {
+      map.flyTo([selectedEvent.lat, selectedEvent.lng], 15, {
+        animate: true,
+        duration: 1.5 // 1.5 saniyede süzülerek git
+      })
+    }
+  }, [selectedEvent, map])
+
+  return null
+}
+
+export default function Map({ events, selectedEvent }: { events: any[], selectedEvent: any }) {
   return (
-    <MapContainer center={center as L.LatLngExpression} zoom={13} style={{ height: '100%', width: '100%' }}>
+    <MapContainer center={[41.0082, 28.9784]} zoom={12} style={{ height: '100%', width: '100%' }}>
       <TileLayer
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         attribution='&copy; OpenStreetMap contributors'
       />
+      
+      {/* Motoru haritaya ekledik */}
+      <MapController selectedEvent={selectedEvent} />
+
       {events.map((event) => (
         <Marker key={event.id} position={[event.lat, event.lng]} icon={icon}>
           <Popup>
             <div className="font-bold">{event.title}</div>
             <div className="text-sm">{event.venue_name}</div>
-            <a href="#" className="text-xs text-blue-600 underline mt-1 block">Bilet Al</a>
+            <div className="text-xs text-orange-600 font-bold mt-1">{event.price}</div>
           </Popup>
         </Marker>
       ))}
