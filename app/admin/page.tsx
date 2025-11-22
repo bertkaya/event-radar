@@ -1,207 +1,299 @@
-// app/page.tsx
+// app/admin/page.tsx
 'use client'
 
 import { useState, useEffect } from 'react'
-import dynamic from 'next/dynamic'
 import { supabase } from '@/lib/supabase'
-import { MapPin, Calendar, Navigation, Filter, Star, LogOut, Heart, Share2 } from 'lucide-react'
-import Link from 'next/link'
+import { Trash2, Edit, Upload, ImageIcon, MapPin, Calendar, Clock } from 'lucide-react'
 
-const MapWithNoSSR = dynamic(() => import('@/components/Map'), { 
-  ssr: false,
-  loading: () => <div className="h-full w-full flex items-center justify-center bg-gray-100 text-brand animate-pulse font-bold">Yükleniyor...</div>
-})
-
-export default function Home() {
+export default function Admin() {
+  const [loading, setLoading] = useState(false)
+  const [msg, setMsg] = useState('')
+  const [pin, setPin] = useState('')
   const [events, setEvents] = useState<any[]>([])
-  const [userPrefs, setUserPrefs] = useState<string[]>([])
-  const [favorites, setFavorites] = useState<number[]>([]) // Favori ID'leri
-  const [selectedEvent, setSelectedEvent] = useState<any>(null)
-  const [activeCategory, setActiveCategory] = useState<string>('Tümü')
-  const [triggerLocate, setTriggerLocate] = useState(false)
-  const [user, setUser] = useState<any>(null)
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [bulkData, setBulkData] = useState('')
 
-  useEffect(() => {
-    fetchData()
-  }, [])
+  // Form Verileri
+  const [formData, setFormData] = useState({
+    title: '', venue: '', category: 'Müzik', price: '', 
+    date: '', time: '', lat: '', lng: '', 
+    description: '', maps_url: '', image_url: '', ticket_url: '', sold_out: false
+  })
 
-  const fetchData = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    setUser(user)
+  useEffect(() => { fetchEvents() }, [])
 
-    let preferences: string[] = []
+  const fetchEvents = async () => {
+    // Yeniden eskiye sırala
+    const { data } = await supabase.from('events').select('*').order('start_time', { ascending: false })
+    if (data) setEvents(data)
+  }
 
-    // 1. Kullanıcı varsa Tercihleri ve Favorileri çek
-    if (user) {
-      const { data: profile } = await supabase.from('profiles').select('preferences').eq('id', user.id).single()
-      if (profile?.preferences) {
-        preferences = profile.preferences
-        setUserPrefs(preferences)
+  // AVRUPA FORMATI: Tarih ve Saat Gösterimi (DD.MM.YYYY HH:mm)
+  const formatEuroDate = (dateString: string) => {
+    const date = new Date(dateString)
+    return new Intl.DateTimeFormat('tr-TR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false // 24 Saat formatı
+    }).format(date)
+  }
+
+  // DÜZENLEME MODUNU AÇ
+  const handleEditClick = (event: any) => {
+    setEditingId(event.id)
+    const dateObj = new Date(event.start_time)
+    
+    // HTML inputları için YYYY-MM-DD formatı zorunludur (tarayıcı bunu kullanıcıya DD.MM.YYYY gösterir)
+    const isoDate = dateObj.toISOString().split('T')[0]
+    // Saat HH:mm (24h)
+    const isoTime = dateObj.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', hour12: false })
+
+    setFormData({
+      title: event.title,
+      venue: event.venue_name,
+      category: event.category,
+      price: event.price,
+      date: isoDate,
+      time: isoTime,
+      lat: event.lat.toString(),
+      lng: event.lng.toString(),
+      description: event.description || '',
+      maps_url: event.maps_url || '',
+      image_url: event.image_url || '',
+      ticket_url: event.ticket_url || '',
+      sold_out: event.sold_out || false
+    })
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  const handleCancelEdit = () => {
+    setEditingId(null)
+    resetForm()
+  }
+
+  const resetForm = () => {
+    setFormData({ title: '', venue: '', category: 'Müzik', price: '', date: '', time: '', lat: '', lng: '', description: '', maps_url: '', image_url: '', ticket_url: '', sold_out: false })
+  }
+
+  const handleDelete = async (id: number) => {
+    if (!confirm('Bu etkinliği silmek istediğine emin misin?')) return
+    if (pin !== '1823') return alert('Yetkisiz işlem!')
+    await supabase.from('events').delete().eq('id', id)
+    fetchEvents()
+  }
+
+  // Linkten Koordinat Çözücü
+  const extractCoordsFromLink = () => {
+    const url = formData.maps_url;
+    const regex = /@(-?\d+\.\d+),(-?\d+\.\d+)/;
+    const match = url.match(regex);
+
+    if (match) {
+      setFormData(prev => ({ ...prev, lat: match[1], lng: match[2] }));
+      alert(`✅ Koordinat bulundu: ${match[1]}, ${match[2]}`);
+    } else {
+      alert('❌ Linkten koordinat okunamadı.');
+    }
+  }
+
+  const handleSubmit = async (e: any) => {
+    e.preventDefault()
+    if (pin !== '1823') return alert('Hatalı Admin PIN Kodu!')
+
+    setLoading(true)
+    setMsg('')
+
+    try {
+      // Tarih ve Saati Birleştir (ISO Formatı veritabanı için standarttır)
+      const isoDateTime = new Date(`${formData.date}T${formData.time}`).toISOString()
+      
+      // Hassas Koordinat Ayarı (Virgül -> Nokta)
+      const cleanLat = parseFloat(formData.lat.toString().replace(',', '.').trim())
+      const cleanLng = parseFloat(formData.lng.toString().replace(',', '.').trim())
+
+      if (isNaN(cleanLat) || isNaN(cleanLng)) throw new Error("Koordinat formatı hatalı!")
+
+      const payload = {
+        title: formData.title,
+        description: formData.description,
+        venue_name: formData.venue,
+        category: formData.category,
+        price: formData.price,
+        start_time: isoDateTime,
+        lat: cleanLat,
+        lng: cleanLng,
+        image_url: formData.image_url,
+        ticket_url: formData.ticket_url,
+        maps_url: formData.maps_url,
+        sold_out: formData.sold_out
       }
 
-      const { data: favs } = await supabase.from('favorites').select('event_id').eq('user_id', user.id)
-      if (favs) setFavorites(favs.map(f => f.event_id))
-    }
+      if (editingId) {
+        const { error } = await supabase.from('events').update(payload).eq('id', editingId)
+        if (error) throw error
+        setMsg('✅ Etkinlik Güncellendi!')
+        setEditingId(null)
+      } else {
+        const { error } = await supabase.from('events').insert([payload])
+        if (error) throw error
+        setMsg('✅ Etkinlik Eklendi!')
+      }
 
-    // 2. Etkinlikleri çek
-    const { data: eventsData } = await supabase.from('events').select('*').order('start_time', { ascending: true })
-
-    if (eventsData) {
-      // 3. Algoritma
-      const sortedEvents = eventsData.sort((a, b) => {
-        const scoreA = preferences.includes(a.category) ? 10 : 0
-        const scoreB = preferences.includes(b.category) ? 10 : 0
-        return scoreB - scoreA
-      })
-      setEvents(sortedEvents)
-    }
-  }
-
-  // Favori Ekle/Çıkar
-  const toggleFavorite = async (e: any, eventId: number) => {
-    e.stopPropagation() // Karta tıklamayı engelle, sadece kalbe tıkla
-    if (!user) return alert('Favorilere eklemek için giriş yapmalısın!')
-
-    if (favorites.includes(eventId)) {
-      // Çıkar
-      setFavorites(favorites.filter(id => id !== eventId))
-      await supabase.from('favorites').delete().match({ user_id: user.id, event_id: eventId })
-    } else {
-      // Ekle
-      setFavorites([...favorites, eventId])
-      await supabase.from('favorites').insert([{ user_id: user.id, event_id: eventId }])
+      resetForm()
+      fetchEvents()
+      
+    } catch (error: any) {
+      setMsg('❌ Hata: ' + error.message)
+    } finally {
+      setLoading(false)
     }
   }
 
-  const categories = ['Tümü', ...Array.from(new Set(events.map(e => e.category)))]
-  const filteredEvents = activeCategory === 'Tümü' ? events : events.filter(e => e.category === activeCategory)
+  const handleBulkUpload = async () => {
+    if (pin !== '1823') return alert('PIN girin!')
+    try {
+      const json = JSON.parse(bulkData)
+      const { error } = await supabase.from('events').insert(json)
+      if (error) throw error
+      alert('Toplu yükleme başarılı!')
+      fetchEvents()
+      setBulkData('')
+    } catch (err) {
+      alert('JSON Formatı Hatalı')
+    }
+  }
 
-  const handleLocate = () => {
-    setTriggerLocate(true)
-    setTimeout(() => setTriggerLocate(false), 1000)
+  const handleChange = (e: any) => {
+    const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value
+    setFormData({ ...formData, [e.target.name]: value })
   }
 
   return (
-    <div className="flex flex-col h-screen w-full bg-white text-black font-sans overflow-hidden">
-      
-      {/* HEADER */}
-      <header className="h-[70px] bg-white border-b border-gray-200 px-6 flex justify-between items-center z-50 shrink-0 shadow-sm">
-        <div className="flex items-center gap-3">
-          <div className="bg-brand text-white font-black text-xl px-3 py-1 tracking-tighter rounded-sm">18-23</div>
-          <div className="hidden md:block text-[10px] text-gray-400 font-bold leading-tight">
-            MESAI SONRASI<br/>ETKİNLİK REHBERİ
-          </div>
+    <div className="min-h-screen bg-gray-50 py-12 px-4 font-sans text-gray-800">
+      <div className="max-w-5xl mx-auto space-y-8">
+        
+        {/* PIN */}
+        <div className="bg-white p-4 rounded-xl shadow-sm flex items-center gap-4 border border-gray-200">
+          <div className="font-bold text-gray-700">ADMİN GİRİŞİ:</div>
+          <input value={pin} onChange={(e) => setPin(e.target.value)} type="password" className="border p-2 rounded outline-none focus:border-brand" placeholder="PIN (1823)" />
         </div>
 
-        <div className="flex items-center gap-4">
-          {user ? (
-            <div className="flex items-center gap-3">
-              <div className="text-right hidden md:block">
-                <div className="text-xs font-bold text-gray-900">{user.email.split('@')[0]}</div>
-                <div className="text-[10px] text-gray-500 flex justify-end gap-1">
-                   <span>{userPrefs.length} İlgi Alanı</span>
-                   <span>•</span>
-                   <span>{favorites.length} Favori</span>
+        {/* FORM */}
+        <div className="bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden">
+          <div className={`${editingId ? 'bg-yellow-500' : 'bg-brand'} p-6 text-white text-center transition-colors`}>
+            <h1 className="text-2xl font-black tracking-tighter">
+              {editingId ? 'DÜZENLEME MODU' : 'YENİ ETKİNLİK EKLE'}
+            </h1>
+          </div>
+
+          <div className="p-8">
+            <form onSubmit={handleSubmit} className="space-y-6">
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-4">
+                   <label className="text-xs font-bold text-gray-400 uppercase">Temel Bilgiler</label>
+                   <input name="title" value={formData.title} onChange={handleChange} required className="w-full border p-3 rounded-lg" placeholder="Etkinlik Adı" />
+                   <input name="venue" value={formData.venue} onChange={handleChange} required className="w-full border p-3 rounded-lg" placeholder="Mekan Adı" />
+                   <select name="category" value={formData.category} onChange={handleChange} className="w-full border p-3 rounded-lg bg-white">
+                      {['Müzik', 'Tiyatro', 'Sanat', 'Spor', 'Komedi', 'Sinema', 'Yeme-İçme'].map(c => <option key={c}>{c}</option>)}
+                   </select>
+                   <div className="flex gap-2 items-center bg-gray-50 p-2 rounded-lg border">
+                      <input type="checkbox" name="sold_out" checked={formData.sold_out} onChange={handleChange} className="w-5 h-5" />
+                      <span className="font-bold text-red-600 text-sm">SOLD OUT (Biletler Tükendi)</span>
+                   </div>
+                </div>
+                
+                <div className="space-y-4">
+                   <label className="text-xs font-bold text-gray-400 uppercase">Detaylar & Zaman</label>
+                   <input name="price" value={formData.price} onChange={handleChange} required className="w-full border p-3 rounded-lg" placeholder="Fiyat (Örn: 250 TL)" />
+                   
+                   {/* TARİH VE SAAT */}
+                   <div className="flex gap-2">
+                      <div className="w-1/2">
+                         <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">Tarih (Gün/Ay/Yıl)</label>
+                         <input type="date" name="date" value={formData.date} onChange={handleChange} required className="w-full border p-3 rounded-lg" />
+                      </div>
+                      <div className="w-1/2">
+                         <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">Saat (24s)</label>
+                         <input type="time" name="time" value={formData.time} onChange={handleChange} required className="w-full border p-3 rounded-lg" />
+                      </div>
+                   </div>
+                   
+                   {/* AKILLI KONUM ALANI */}
+                   <div className="bg-blue-50 p-3 rounded-lg border border-blue-100">
+                      <div className="flex gap-2 mb-2">
+                         <input name="maps_url" value={formData.maps_url} onChange={handleChange} placeholder="Google Maps Linki" className="w-full border p-2 rounded text-xs" />
+                         <button type="button" onClick={extractCoordsFromLink} className="bg-blue-600 text-white px-3 rounded text-xs font-bold hover:bg-blue-700">Çek</button>
+                      </div>
+                      <div className="flex gap-2">
+                         <input name="lat" value={formData.lat} onChange={handleChange} required placeholder="Lat (41.x)" className="w-1/2 border p-2 rounded text-sm font-mono" />
+                         <input name="lng" value={formData.lng} onChange={handleChange} required placeholder="Lng (29.x)" className="w-1/2 border p-2 rounded text-sm font-mono" />
+                      </div>
+                   </div>
                 </div>
               </div>
-              <button onClick={async () => { await supabase.auth.signOut(); window.location.reload(); }} className="text-gray-400 hover:text-brand transition" title="Çıkış Yap">
-                <LogOut size={18} />
-              </button>
-            </div>
-          ) : (
-            <Link href="/login" className="text-xs font-bold bg-black text-white px-4 py-2 rounded-lg hover:bg-gray-800 transition">
-              Giriş Yap
-            </Link>
-          )}
-        </div>
-      </header>
 
-      {/* İÇERİK */}
-      <div className="flex flex-1 flex-col md:flex-row overflow-hidden relative">
-        
-        {/* HARİTA (SOL) */}
-        <div className="h-[50%] md:h-full md:w-[60%] bg-gray-100 relative order-1 md:order-2">
-          <MapWithNoSSR 
-            events={filteredEvents} 
-            selectedEvent={selectedEvent} 
-            triggerLocate={triggerLocate}
-            markerMode="title"
-          />
-          <button onClick={handleLocate} className="absolute top-4 right-4 z-[1000] bg-white p-3 rounded-xl shadow-lg hover:bg-brand hover:text-white transition text-gray-700 border border-gray-200">
-             <Navigation size={20} />
-          </button>
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-gray-400 uppercase">Medya & Açıklama</label>
+                <div className="flex gap-2">
+                   <input name="image_url" value={formData.image_url} onChange={handleChange} className="w-1/2 border p-3 rounded-lg text-sm" placeholder="Poster URL (Resim)" />
+                   <input name="ticket_url" value={formData.ticket_url} onChange={handleChange} className="w-1/2 border p-3 rounded-lg text-sm" placeholder="Bilet Satış Linki" />
+                </div>
+                <textarea name="description" value={formData.description} onChange={handleChange} rows={3} className="w-full border p-3 rounded-lg resize-none" placeholder="Etkinlik detayları..."></textarea>
+              </div>
 
-          <div className="md:hidden absolute top-4 left-4 right-16 z-[900] overflow-x-auto no-scrollbar">
-             <div className="flex gap-2">
-               {categories.map(cat => (
-                  <button key={cat} onClick={() => setActiveCategory(cat)} className={`px-3 py-1.5 rounded-lg text-xs font-bold shadow-md whitespace-nowrap backdrop-blur-md transition ${activeCategory === cat ? 'bg-brand text-white' : 'bg-white/90 text-gray-800'}`}>{cat}</button>
-               ))}
-             </div>
+              <div className="flex gap-3">
+                {editingId && <button type="button" onClick={handleCancelEdit} className="flex-1 bg-gray-500 text-white p-4 rounded-xl font-bold">İptal</button>}
+                <button className={`flex-[2] text-white p-4 rounded-xl font-bold shadow-lg ${editingId ? 'bg-yellow-500 hover:bg-yellow-600' : 'bg-brand hover:bg-brand-dark'}`}>
+                   {loading ? 'İşleniyor...' : (editingId ? 'Değişiklikleri Kaydet' : 'Yayınla')}
+                </button>
+              </div>
+              {msg && <div className="text-center p-3 rounded-lg font-bold bg-gray-100">{msg}</div>}
+            </form>
           </div>
         </div>
 
-        {/* LİSTE (SAĞ) */}
-        <div className="h-[50%] md:h-full md:w-[40%] bg-white order-2 md:order-1 border-r border-gray-200 flex flex-col shadow-2xl relative z-20">
-           <div className="p-5 border-b border-gray-100 flex justify-between items-end bg-white shrink-0">
-             <div>
-               <h1 className="text-2xl font-black tracking-tighter text-gray-900 mb-1">AKIŞ</h1>
-               <p className="text-xs font-bold text-gray-400 flex items-center gap-1"><Filter size={12}/> {activeCategory}</p>
-             </div>
-             <div className="hidden md:flex gap-1 flex-wrap justify-end w-1/2">
-                {categories.map(cat => (
-                  <button key={cat} onClick={() => setActiveCategory(cat)} className={`px-2 py-1 rounded text-[10px] font-bold border transition ${activeCategory === cat ? 'bg-brand text-white border-brand' : 'bg-white text-gray-500 hover:border-brand'}`}>{cat}</button>
-                ))}
-             </div>
-           </div>
+        {/* TOPLU YÜKLEME */}
+        <div className="bg-white p-6 rounded-2xl shadow border border-gray-200">
+           <h3 className="font-bold text-gray-700 mb-2 flex items-center gap-2"><Upload size={18}/> Toplu Yükleme (JSON)</h3>
+           <textarea className="w-full h-24 border p-2 rounded text-xs font-mono bg-gray-50" placeholder='[{"title": "Konser", "lat": 41.123, ...}]' value={bulkData} onChange={(e) => setBulkData(e.target.value)}></textarea>
+           <button onClick={handleBulkUpload} className="mt-2 bg-blue-600 text-white px-4 py-2 rounded text-sm font-bold">Yükle</button>
+        </div>
 
-           <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
-             {filteredEvents.length === 0 && <div className="text-center text-gray-400 mt-10 text-sm font-medium">Etkinlik bulunamadı.</div>}
-
-             {filteredEvents.map((event) => {
-               const isRecommended = userPrefs.includes(event.category);
-               const isFav = favorites.includes(event.id);
-
-               return (
-                <div key={event.id} onClick={() => setSelectedEvent(event)}
-                  className={`group bg-white p-5 rounded-2xl cursor-pointer transition-all border relative ${
-                    selectedEvent?.id === event.id ? 'border-brand ring-1 ring-brand shadow-lg' : 'border-gray-200 hover:border-brand/50 hover:shadow-sm'
-                  }`}>
-                  
-                  {/* KALBİMİZ BURADA */}
-                  <button 
-                    onClick={(e) => toggleFavorite(e, event.id)}
-                    className="absolute top-4 right-4 p-2 rounded-full hover:bg-gray-100 transition z-20"
-                  >
-                    <Heart size={18} className={isFav ? "fill-brand text-brand" : "text-gray-400"} />
-                  </button>
-
-                  {isRecommended && (
-                    <div className="absolute -top-2 -left-2 bg-yellow-400 text-black text-[10px] font-black px-2 py-1 rounded-full shadow-sm flex items-center gap-1 -rotate-3 z-10 border border-yellow-500">
-                      <Star size={10} fill="black"/> SENİN İÇİN
+        {/* LİSTE */}
+        <div className="bg-white rounded-2xl shadow border border-gray-200 overflow-hidden">
+          <div className="bg-gray-100 p-4 font-bold text-gray-700 border-b flex justify-between">
+             <span>YAYINDAKİLER ({events.length})</span>
+             <span className="text-xs font-normal text-gray-500">Sıralama: Tarihe Göre (Yakından Uzağa)</span>
+          </div>
+          <div className="divide-y">
+            {events.map(event => (
+              <div key={event.id} className="p-4 flex items-center justify-between hover:bg-gray-50">
+                <div className="flex items-center gap-3">
+                  {event.image_url ? <img src={event.image_url} className="w-12 h-12 object-cover rounded-md"/> : <div className="w-12 h-12 bg-gray-200 rounded-md flex items-center justify-center"><ImageIcon size={16} className="text-gray-400"/></div>}
+                  <div>
+                    <div className="font-bold text-gray-900 flex items-center gap-2">
+                      {event.title} 
+                      {event.sold_out && <span className="bg-red-600 text-white text-[10px] px-2 py-0.5 rounded uppercase font-black">SOLD</span>}
                     </div>
-                  )}
-
-                  <div className="flex justify-between items-start mb-3 pr-8">
-                    <span className="text-[10px] font-bold uppercase bg-gray-100 text-gray-600 px-2 py-1 rounded">{event.category}</span>
-                    <span className="text-sm font-bold text-brand">{event.price}</span>
-                  </div>
-
-                  <h3 className="font-bold text-xl text-gray-900 leading-tight mb-2 group-hover:text-brand transition-colors pr-4">{event.title}</h3>
-                  <p className="text-xs text-gray-500 line-clamp-2 mb-4 border-l-2 border-gray-100 pl-2">{event.description}</p>
-
-                  <div className="flex items-center justify-between pt-3 border-t border-gray-50">
-                      <div className="flex items-center gap-3">
-                        <div className="flex items-center gap-1 text-xs font-bold text-gray-700"><MapPin size={14} className="text-gray-400"/> {event.venue_name}</div>
-                        <div className="flex items-center gap-1 text-xs font-bold text-gray-700"><Calendar size={14} className="text-gray-400"/> {new Date(event.start_time).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
-                      </div>
-                      <button className="text-gray-400 hover:text-brand"><Share2 size={16}/></button>
+                    <div className="text-xs text-gray-500 flex items-center gap-2 mt-1">
+                       <span className="flex items-center gap-1 text-brand font-bold"><Calendar size={12}/> {formatEuroDate(event.start_time)}</span>
+                       <span className="flex items-center gap-1"><MapPin size={12}/> {event.venue_name}</span>
+                    </div>
                   </div>
                 </div>
-               )
-             })}
-             <div className="h-8"></div>
-           </div>
+                <div className="flex gap-2">
+                  <button onClick={() => handleEditClick(event)} className="p-2 text-blue-600 hover:bg-blue-50 rounded border border-blue-100"><Edit size={16}/></button>
+                  <button onClick={() => handleDelete(event.id)} className="p-2 text-red-600 hover:bg-red-50 rounded border border-red-100"><Trash2 size={16}/></button>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
+
       </div>
     </div>
   )
