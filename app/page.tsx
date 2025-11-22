@@ -4,7 +4,7 @@
 import { useState, useEffect } from 'react'
 import dynamic from 'next/dynamic'
 import { supabase } from '@/lib/supabase'
-import { MapPin, Calendar, Navigation, Filter, Star, LogOut, Heart, Share2, Ticket, Map, Ban, X, Clock, CheckCircle, ChevronDown, Globe } from 'lucide-react'
+import { MapPin, Calendar, Navigation, Filter, Star, LogOut, Heart, Share2, Ticket, Map, Ban, X, Clock, CheckCircle, ChevronDown, Globe, ArrowUpDown, Banknote } from 'lucide-react'
 import Link from 'next/link'
 
 const MapWithNoSSR = dynamic(() => import('@/components/Map'), { 
@@ -20,23 +20,34 @@ const PRESET_LOCATIONS = [
   { name: '• Beyoğlu / Taksim', lat: 41.0369, lng: 28.9850, zoom: 14 },
   { name: 'Ankara', lat: 39.9334, lng: 32.8597, zoom: 12 },
   { name: 'İzmir', lat: 38.4237, lng: 27.1428, zoom: 12 },
-  { name: 'Eskişehir', lat: 39.7667, lng: 30.5256, zoom: 13 },
 ]
 
 export default function Home() {
   const [events, setEvents] = useState<any[]>([])
+  const [allEvents, setAllEvents] = useState<any[]>([]) // Filtreleme için yedek
   const [userPrefs, setUserPrefs] = useState<string[]>([])
   const [favorites, setFavorites] = useState<number[]>([]) 
+  const [favCounts, setFavCounts] = useState<{[key: number]: number}>({}) // Favori sayıları
   const [selectedEvent, setSelectedEvent] = useState<any>(null)
+  
+  // FİLTRE STATE'LERİ
   const [activeCategory, setActiveCategory] = useState<string>('Tümü')
+  const [sortBy, setSortBy] = useState<'date-asc' | 'date-desc' | 'popular'>('date-asc')
+  const [priceFilter, setPriceFilter] = useState<'all' | 'free'>('all')
+  
   const [triggerLocate, setTriggerLocate] = useState(false)
-  const [manualLocation, setManualLocation] = useState<any>(null) // Manuel Konum
-  const [showLocModal, setShowLocModal] = useState(false) // Konum Modalı Açık mı?
-  const [currentLocName, setCurrentLocName] = useState('İstanbul') // Görünen İsim
+  const [manualLocation, setManualLocation] = useState<any>(null)
+  const [showLocModal, setShowLocModal] = useState(false)
+  const [currentLocName, setCurrentLocName] = useState('İstanbul')
   const [user, setUser] = useState<any>(null)
   const [copied, setCopied] = useState(false)
 
   useEffect(() => { fetchData() }, [])
+
+  // FİLTRELEME VE SIRALAMA TETİKLEYİCİSİ
+  useEffect(() => {
+    applyFilters()
+  }, [activeCategory, sortBy, priceFilter, allEvents, favCounts])
 
   const fetchData = async () => {
     const { data: { user } } = await supabase.auth.getUser()
@@ -53,16 +64,61 @@ export default function Home() {
       if (favs) setFavorites(favs.map(f => f.event_id))
     }
 
-    const { data: eventsData } = await supabase.from('events').select('*').order('start_time', { ascending: true })
+    // Tüm favorileri çekip say (Popülerlik sıralaması için)
+    const { data: allFavs } = await supabase.from('favorites').select('event_id')
+    const counts: {[key: number]: number} = {}
+    allFavs?.forEach((f: any) => {
+        counts[f.event_id] = (counts[f.event_id] || 0) + 1
+    })
+    setFavCounts(counts)
+
+    // Etkinlikleri çek
+    const { data: eventsData } = await supabase.from('events').select('*')
 
     if (eventsData) {
-      const sortedEvents = eventsData.sort((a, b) => {
-        const scoreA = preferences.includes(a.category) ? 10 : 0
-        const scoreB = preferences.includes(b.category) ? 10 : 0
-        return scoreB - scoreA
-      })
-      setEvents(sortedEvents)
+      // ÇAKIŞMA ÇÖZÜMÜ: Aynı koordinattaki etkinliklere mikroskobik rastgelelik ekle
+      // Böylece haritada üst üste binip kaybolmazlar.
+      const jitteredEvents = eventsData.map(ev => ({
+        ...ev,
+        lat: ev.lat + (Math.random() - 0.5) * 0.0002, 
+        lng: ev.lng + (Math.random() - 0.5) * 0.0002
+      }))
+      
+      setAllEvents(jitteredEvents) // Ham veriyi sakla
     }
+  }
+
+  const applyFilters = () => {
+    let filtered = [...allEvents]
+
+    // 1. Kategori Filtresi
+    if (activeCategory !== 'Tümü') {
+      filtered = filtered.filter(e => e.category === activeCategory)
+    }
+
+    // 2. Fiyat Filtresi
+    if (priceFilter === 'free') {
+      filtered = filtered.filter(e => 
+        e.price?.toLowerCase().includes('ücretsiz') || e.price === '0' || e.price === ''
+      )
+    }
+
+    // 3. Sıralama
+    filtered.sort((a, b) => {
+      if (sortBy === 'date-asc') {
+        return new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
+      } else if (sortBy === 'date-desc') {
+        return new Date(b.start_time).getTime() - new Date(a.start_time).getTime()
+      } else if (sortBy === 'popular') {
+        // Favori sayısına göre (yoksa 0)
+        const countA = favCounts[a.id] || 0
+        const countB = favCounts[b.id] || 0
+        return countB - countA
+      }
+      return 0
+    })
+
+    setEvents(filtered)
   }
 
   const toggleFavorite = async (e: any, eventId: number) => {
@@ -71,9 +127,12 @@ export default function Home() {
 
     if (favorites.includes(eventId)) {
       setFavorites(favorites.filter(id => id !== eventId))
+      // Yerel sayacı güncelle (Anlık görünüm için)
+      setFavCounts(prev => ({...prev, [eventId]: Math.max(0, (prev[eventId] || 1) - 1)}))
       await supabase.from('favorites').delete().match({ user_id: user.id, event_id: eventId })
     } else {
       setFavorites([...favorites, eventId])
+      setFavCounts(prev => ({...prev, [eventId]: (prev[eventId] || 0) + 1}))
       await supabase.from('favorites').insert([{ user_id: user.id, event_id: eventId }])
     }
   }
@@ -100,23 +159,29 @@ export default function Home() {
     window.open(url, '_blank')
   }
 
-  const categories = ['Tümü', ...Array.from(new Set(events.map(e => e.category)))]
-  const filteredEvents = activeCategory === 'Tümü' ? events : events.filter(e => e.category === activeCategory)
+  const categories = ['Tümü', ...Array.from(new Set(allEvents.map(e => e.category)))]
 
-  // GPS TETİKLEME
   const handleLocate = () => {
     setTriggerLocate(true)
     setCurrentLocName("Konumum")
     setTimeout(() => setTriggerLocate(false), 1000)
   }
 
-  // MANUEL KONUM SEÇME
   const handleSelectLocation = (loc: any) => {
     setManualLocation(loc)
     setCurrentLocName(loc.name.replace('• ', ''))
     setShowLocModal(false)
   }
 
+  // AVRUPA FORMATI (DD.MM.YYYY HH:mm)
+  const formatEuroDateTime = (dateStr: string) => {
+    const date = new Date(dateStr)
+    const day = date.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    const time = date.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })
+    return `${day} ${time}`
+  }
+
+  // İNSANİ FORMAT (Bugün, Yarın vb.)
   const formatHumanDate = (dateStr: string) => {
     const date = new Date(dateStr)
     const today = new Date()
@@ -186,17 +251,21 @@ export default function Home() {
               <div className="flex flex-col gap-3 mb-6 bg-gray-50 p-4 rounded-xl border border-gray-100">
                  <div className="flex items-center gap-3 text-gray-700">
                     <div className="bg-white p-2 rounded-lg shadow-sm text-brand"><Calendar size={20}/></div>
-                    <div><div className="text-xs font-bold text-gray-400 uppercase">Tarih</div><div className="font-bold text-lg">{formatHumanDate(selectedEvent.start_time)}</div></div>
-                 </div>
-                 <div className="w-full h-[1px] bg-gray-200"></div>
-                 <div className="flex items-center gap-3 text-gray-700">
-                    <div className="bg-white p-2 rounded-lg shadow-sm text-brand"><Clock size={20}/></div>
-                    <div><div className="text-xs font-bold text-gray-400 uppercase">Saat</div><div className="font-bold text-lg">{new Date(selectedEvent.start_time).toLocaleTimeString('tr-TR', {hour:'2-digit', minute:'2-digit'})}</div></div>
+                    <div>
+                      <div className="text-xs font-bold text-gray-400 uppercase">Tarih</div>
+                      {/* Avrupa Formatı */}
+                      <div className="font-bold text-lg">{formatEuroDateTime(selectedEvent.start_time)}</div>
+                    </div>
                  </div>
                  <div className="w-full h-[1px] bg-gray-200"></div>
                  <div className="flex items-center gap-3 text-gray-700">
                     <div className="bg-white p-2 rounded-lg shadow-sm text-brand"><MapPin size={20}/></div>
                     <div><div className="text-xs font-bold text-gray-400 uppercase">Mekan</div><div className="font-bold text-lg">{selectedEvent.venue_name}</div></div>
+                 </div>
+                 <div className="w-full h-[1px] bg-gray-200"></div>
+                 <div className="flex items-center gap-3 text-gray-700">
+                    <div className="bg-white p-2 rounded-lg shadow-sm text-brand"><Heart size={20}/></div>
+                    <div><div className="text-xs font-bold text-gray-400 uppercase">Favori Sayısı</div><div className="font-bold text-lg">{favCounts[selectedEvent.id] || 0} Kişi</div></div>
                  </div>
               </div>
 
@@ -223,22 +292,14 @@ export default function Home() {
       {/* --- HEADER --- */}
       <header className="h-[70px] bg-white border-b border-gray-200 px-4 md:px-6 flex justify-between items-center z-50 shrink-0 shadow-sm">
         <div className="flex items-center gap-4">
-          
           {/* LOGO */}
           <div className="flex items-center gap-2">
              <div className="bg-brand text-white font-black text-xl px-3 py-1 tracking-tighter rounded-sm">18-23</div>
           </div>
-
-          {/* ŞEHİR SEÇİCİ (YENİ) */}
-          <button 
-            onClick={() => setShowLocModal(true)}
-            className="flex items-center gap-1 text-sm font-bold text-gray-700 hover:bg-gray-100 px-3 py-1.5 rounded-full transition"
-          >
-            <MapPin size={16} className="text-brand"/>
-            {currentLocName}
-            <ChevronDown size={14} className="text-gray-400"/>
+          {/* ŞEHİR SEÇİCİ */}
+          <button onClick={() => setShowLocModal(true)} className="flex items-center gap-1 text-sm font-bold text-gray-700 hover:bg-gray-100 px-3 py-1.5 rounded-full transition">
+            <MapPin size={16} className="text-brand"/>{currentLocName}<ChevronDown size={14} className="text-gray-400"/>
           </button>
-
         </div>
 
         <div className="flex items-center gap-4">
@@ -259,20 +320,21 @@ export default function Home() {
       {/* --- İÇERİK --- */}
       <div className="flex flex-1 flex-col md:flex-row overflow-hidden relative">
         
+        {/* HARİTA (SOL) */}
         <div className="h-[40%] md:h-full md:w-[60%] bg-gray-100 relative order-1 md:order-2">
           <MapWithNoSSR 
-            events={filteredEvents} 
+            events={events} // Filtrelenmiş olayları gönder
             selectedEvent={selectedEvent} 
             triggerLocate={triggerLocate} 
             markerMode="title" 
-            manualLocation={manualLocation} // Manuel konumu haritaya ilet
+            manualLocation={manualLocation} 
           />
           
-          {/* Hızlı GPS Butonu (Harita Üstü) */}
           <button onClick={handleLocate} className="absolute top-4 right-4 z-[1000] bg-white p-3 rounded-xl shadow-lg hover:bg-brand hover:text-white transition text-gray-700 border border-gray-200">
              <Navigation size={20} />
           </button>
 
+          {/* Mobilde Filtre Çubuğu */}
           <div className="md:hidden absolute top-4 left-4 right-16 z-[900] overflow-x-auto no-scrollbar">
              <div className="flex gap-2">
                {categories.map(cat => (
@@ -282,20 +344,52 @@ export default function Home() {
           </div>
         </div>
 
+        {/* LİSTE (SAĞ) */}
         <div className="h-[60%] md:h-full md:w-[40%] bg-white order-2 md:order-1 border-r border-gray-200 flex flex-col shadow-2xl relative z-20">
-           <div className="p-5 border-b border-gray-100 flex justify-between items-end bg-white shrink-0">
-             <div><h1 className="text-2xl font-black tracking-tighter text-gray-900 mb-1">AKIŞ</h1><p className="text-xs font-bold text-gray-400 flex items-center gap-1"><Filter size={12}/> {activeCategory}</p></div>
-             <div className="hidden md:flex gap-1 flex-wrap justify-end w-1/2">
-                {categories.map(cat => (
-                  <button key={cat} onClick={() => setActiveCategory(cat)} className={`px-2 py-1 rounded text-[10px] font-bold border transition ${activeCategory === cat ? 'bg-brand text-white border-brand' : 'bg-white text-gray-500 hover:border-brand'}`}>{cat}</button>
-                ))}
+           
+           {/* FİLTRE VE BAŞLIK ALANI */}
+           <div className="p-4 border-b border-gray-100 bg-white shrink-0 space-y-3">
+             <div className="flex justify-between items-center">
+               <h1 className="text-2xl font-black tracking-tighter text-gray-900">AKIŞ</h1>
+               <div className="text-[10px] font-bold text-gray-400">{events.length} Etkinlik</div>
+             </div>
+
+             {/* YENİ FİLTRELER */}
+             <div className="flex gap-2 overflow-x-auto no-scrollbar">
+                {/* Kategori Seçimi */}
+                <select 
+                  value={activeCategory} 
+                  onChange={(e) => setActiveCategory(e.target.value)}
+                  className="bg-gray-100 text-xs font-bold p-2 rounded-lg border-none focus:ring-0 outline-none cursor-pointer"
+                >
+                  <option value="Tümü">Tüm Kategoriler</option>
+                  {Array.from(new Set(allEvents.map(e => e.category))).map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+
+                {/* Sıralama Seçimi */}
+                <button 
+                  onClick={() => setSortBy(sortBy === 'date-asc' ? 'date-desc' : (sortBy === 'date-desc' ? 'popular' : 'date-asc'))}
+                  className="flex items-center gap-1 bg-gray-100 text-xs font-bold px-3 py-2 rounded-lg whitespace-nowrap"
+                >
+                  <ArrowUpDown size={14}/>
+                  {sortBy === 'date-asc' ? 'En Yakın Tarih' : (sortBy === 'date-desc' ? 'En Uzak Tarih' : 'En Popüler')}
+                </button>
+
+                {/* Fiyat Filtresi */}
+                <button 
+                  onClick={() => setPriceFilter(priceFilter === 'all' ? 'free' : 'all')}
+                  className={`flex items-center gap-1 text-xs font-bold px-3 py-2 rounded-lg whitespace-nowrap border ${priceFilter === 'free' ? 'bg-green-100 text-green-700 border-green-200' : 'bg-white border-gray-200 text-gray-600'}`}
+                >
+                  <Banknote size={14}/>
+                  {priceFilter === 'free' ? 'Sadece Ücretsiz' : 'Tüm Fiyatlar'}
+                </button>
              </div>
            </div>
 
            <div className="flex-1 overflow-y-auto p-4 space-y-6 bg-gray-50">
-             {filteredEvents.length === 0 && <div className="text-center text-gray-400 mt-10 text-sm font-medium">Etkinlik bulunamadı.</div>}
+             {events.length === 0 && <div className="text-center text-gray-400 mt-10 text-sm font-medium">Bu filtreye uygun etkinlik bulunamadı.</div>}
 
-             {filteredEvents.map((event) => {
+             {events.map((event) => {
                const isRecommended = userPrefs.includes(event.category);
                const isFav = favorites.includes(event.id);
                const isSoldOut = event.sold_out;
@@ -328,7 +422,11 @@ export default function Home() {
                     </div>
                     
                     <div className="flex justify-between items-end mt-2">
-                        <div className="text-xs text-gray-400 font-medium">{new Date(event.start_time).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
+                        {/* AVRUPA SAAT FORMATI */}
+                        <div className="text-xs text-gray-400 font-medium">
+                           {new Date(event.start_time).toLocaleDateString('tr-TR', {day:'2-digit', month:'2-digit'})} • {new Date(event.start_time).toLocaleTimeString('tr-TR', {hour:'2-digit', minute:'2-digit'})}
+                        </div>
+                        
                         <button onClick={(e) => toggleFavorite(e, event.id)} className="p-1.5 rounded-full hover:bg-gray-100 text-gray-400 z-10 relative">
                            <Heart size={16} className={isFav ? "fill-brand text-brand" : ""} />
                         </button>
