@@ -1,0 +1,16 @@
+{
+  "name": "18-23 Event Radar",
+  "short_name": "18-23",
+  "description": "Mesai sonrası etkinlik rehberi",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#800020",
+  "theme_color": "#800020",
+  "icons": [
+    {
+      "src": "/icon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
