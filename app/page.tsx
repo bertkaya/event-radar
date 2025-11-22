@@ -180,8 +180,14 @@ export default function Home() {
           {user ? (
             <div className="flex items-center gap-3">
               <div className="text-right hidden md:block">
-                <div className="text-xs font-bold text-gray-900">{user.email.split('@')[0]}</div>
-                <div className="text-[10px] text-gray-500 flex justify-end gap-1"><span>{favorites.length} Favori</span></div>
+                <Link href="/profile" className="text-right hidden md:block hover:opacity-70 transition cursor-pointer">
+                  <div className="text-xs font-bold text-gray-900">{user.email.split('@')[0]}</div>
+                  <div className="text-[10px] text-gray-500 flex justify-end gap-1">
+                   <span>{userPrefs.length} İlgi Alanı</span>
+                    <span>•</span>
+                   <span>{favorites.length} Favori</span>
+                  </div>
+                </Link>
               </div>
               <button onClick={async () => { await supabase.auth.signOut(); window.location.reload(); }} className="text-gray-400 hover:text-brand transition"><LogOut size={18} /></button>
             </div>
