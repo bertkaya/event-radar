@@ -266,7 +266,7 @@ export default function Admin() {
               <div className="flex gap-3">
                 {editingId && <button type="button" onClick={handleCancelEdit} className="flex-1 bg-gray-500 text-white p-4 rounded-xl font-bold">İptal</button>}
                 <button className={`flex-[2] text-white p-4 rounded-xl font-bold shadow-lg ${editingId ? 'bg-yellow-500 hover:bg-yellow-600' : 'bg-brand hover:bg-brand-dark'}`}>
-                   {loading ? 'İşleniyor...' : (editingId ? 'Değişiklikleri Kaydet' : 'Etkinliği Yayınla')}
+                   {loading ? 'İşleniyor...' : (editingId ? 'Değişiklikleri Kaydet' : 'Yayınla')}
                 </button>
               </div>
               {msg && <div className="text-center p-3 rounded-lg font-bold bg-gray-100">{msg}</div>}
@@ -323,3 +323,4 @@ export default function Admin() {
       </div>
     </div>
   )
+}
