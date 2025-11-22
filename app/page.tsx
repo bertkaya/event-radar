@@ -4,7 +4,7 @@
 import { useState, useEffect } from 'react'
 import dynamic from 'next/dynamic'
 import { supabase } from '@/lib/supabase'
-import { MapPin, Calendar, Navigation, Filter, Star, LogOut, Heart, Share2, ExternalLink, Ticket, Map, Ban } from 'lucide-react'
+import { MapPin, Calendar, Navigation, Filter, Star, LogOut, Heart, Share2, ExternalLink, Ticket, Map, Ban, X, Clock, CheckCircle } from 'lucide-react'
 import Link from 'next/link'
 
 const MapWithNoSSR = dynamic(() => import('@/components/Map'), { 
@@ -16,10 +16,11 @@ export default function Home() {
   const [events, setEvents] = useState<any[]>([])
   const [userPrefs, setUserPrefs] = useState<string[]>([])
   const [favorites, setFavorites] = useState<number[]>([]) 
-  const [selectedEvent, setSelectedEvent] = useState<any>(null)
+  const [selectedEvent, setSelectedEvent] = useState<any>(null) // Modal için seçili etkinlik
   const [activeCategory, setActiveCategory] = useState<string>('Tümü')
   const [triggerLocate, setTriggerLocate] = useState(false)
   const [user, setUser] = useState<any>(null)
+  const [copied, setCopied] = useState(false) // Paylaşım kopyalandı mı?
 
   useEffect(() => { fetchData() }, [])
 
@@ -51,7 +52,7 @@ export default function Home() {
   }
 
   const toggleFavorite = async (e: any, eventId: number) => {
-    e.stopPropagation()
+    e?.stopPropagation()
     if (!user) return alert('Favorilere eklemek için giriş yapmalısın!')
 
     if (favorites.includes(eventId)) {
@@ -63,14 +64,26 @@ export default function Home() {
     }
   }
 
+  const handleShare = async (event: any) => {
+    const shareText = `${event.title} - ${event.venue_name}\nBen buna gidiyorum, sen de gelsene! 🤘\nLink: https://event-radar.vercel.app`
+    
+    if (navigator.share) {
+      try { await navigator.share({ title: event.title, text: shareText, url: 'https://event-radar.vercel.app' }) } catch (err) {}
+    } else {
+      navigator.clipboard.writeText(shareText)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    }
+  }
+
   const openDirections = (e: any, event: any) => {
-    e.stopPropagation()
+    e?.stopPropagation()
     if (event.maps_url) window.open(event.maps_url, '_blank')
     else window.open(`http://maps.google.com/?q=${event.lat},${event.lng}`, '_blank')
   }
 
   const openTicket = (e: any, url: string) => {
-    e.stopPropagation()
+    e?.stopPropagation()
     window.open(url, '_blank')
   }
 
@@ -82,10 +95,145 @@ export default function Home() {
     setTimeout(() => setTriggerLocate(false), 1000)
   }
 
+  // Tarih Formatlayıcı (Avrupa & İnsani)
+  const formatHumanDate = (dateStr: string) => {
+    const date = new Date(dateStr)
+    const today = new Date()
+    const tomorrow = new Date(today)
+    tomorrow.setDate(tomorrow.getDate() + 1)
+
+    if (date.toDateString() === today.toDateString()) return 'Bugün'
+    if (date.toDateString() === tomorrow.toDateString()) return 'Yarın'
+    
+    return date.toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', weekday: 'long' })
+  }
+
   return (
     <div className="flex flex-col h-screen w-full bg-white text-black font-sans overflow-hidden">
       
-      {/* HEADER */}
+      {/* --- MODAL (POP-UP) --- */}
+      {selectedEvent && (
+        <div className="fixed inset-0 z-[2000] flex items-center justify-center p-0 md:p-4">
+          {/* Arka Plan Karartma */}
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setSelectedEvent(null)}></div>
+          
+          {/* Modal Kutusu */}
+          <div className="bg-white w-full h-full md:h-auto md:max-h-[90vh] md:max-w-2xl md:rounded-3xl shadow-2xl relative flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">
+            
+            {/* Kapat Butonu (Sağ Üst) */}
+            <button onClick={() => setSelectedEvent(null)} className="absolute top-4 right-4 z-30 bg-black/50 hover:bg-black text-white p-2 rounded-full backdrop-blur transition">
+              <X size={24} />
+            </button>
+
+            {/* Görsel Alanı */}
+            <div className="h-64 md:h-72 bg-gray-200 relative shrink-0">
+              {selectedEvent.image_url ? (
+                <img src={selectedEvent.image_url} className={`w-full h-full object-cover ${selectedEvent.sold_out ? 'grayscale' : ''}`} />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center bg-brand text-white font-black text-4xl opacity-20">18-23</div>
+              )}
+              <div className="absolute bottom-0 inset-x-0 h-24 bg-gradient-to-t from-white to-transparent"></div>
+              
+              {/* Kategori Etiketi */}
+              <div className="absolute bottom-4 left-6 bg-brand text-white px-3 py-1 rounded-lg text-xs font-bold uppercase tracking-wide shadow-lg">
+                {selectedEvent.category}
+              </div>
+            </div>
+
+            {/* İçerik Alanı (Scroll Edilebilir) */}
+            <div className="p-6 overflow-y-auto flex-1">
+              <div className="flex justify-between items-start mb-2">
+                <h2 className="text-3xl font-black text-gray-900 leading-tight w-3/4">{selectedEvent.title}</h2>
+                {userPrefs.includes(selectedEvent.category) && !selectedEvent.sold_out && (
+                   <div className="flex flex-col items-center">
+                     <Star size={24} className="fill-yellow-400 text-yellow-400"/>
+                     <span className="text-[10px] font-bold text-gray-400">Önerilen</span>
+                   </div>
+                )}
+              </div>
+
+              {/* Tarih ve Mekan Bilgisi */}
+              <div className="flex flex-col gap-3 mb-6 bg-gray-50 p-4 rounded-xl border border-gray-100">
+                 <div className="flex items-center gap-3 text-gray-700">
+                    <div className="bg-white p-2 rounded-lg shadow-sm text-brand"><Calendar size={20}/></div>
+                    <div>
+                      <div className="text-xs font-bold text-gray-400 uppercase">Tarih</div>
+                      <div className="font-bold text-lg">{formatHumanDate(selectedEvent.start_time)}</div>
+                    </div>
+                 </div>
+                 <div className="w-full h-[1px] bg-gray-200"></div>
+                 <div className="flex items-center gap-3 text-gray-700">
+                    <div className="bg-white p-2 rounded-lg shadow-sm text-brand"><Clock size={20}/></div>
+                    <div>
+                      <div className="text-xs font-bold text-gray-400 uppercase">Saat</div>
+                      <div className="font-bold text-lg">{new Date(selectedEvent.start_time).toLocaleTimeString('tr-TR', {hour:'2-digit', minute:'2-digit'})}</div>
+                    </div>
+                 </div>
+                 <div className="w-full h-[1px] bg-gray-200"></div>
+                 <div className="flex items-center gap-3 text-gray-700">
+                    <div className="bg-white p-2 rounded-lg shadow-sm text-brand"><MapPin size={20}/></div>
+                    <div>
+                      <div className="text-xs font-bold text-gray-400 uppercase">Mekan</div>
+                      <div className="font-bold text-lg">{selectedEvent.venue_name}</div>
+                    </div>
+                 </div>
+              </div>
+
+              {/* Açıklama */}
+              <div className="mb-8">
+                <h3 className="font-bold text-gray-900 mb-2">Etkinlik Hakkında</h3>
+                <p className="text-gray-600 leading-relaxed whitespace-pre-line">{selectedEvent.description || 'Açıklama bulunmuyor.'}</p>
+              </div>
+            </div>
+
+            {/* Alt Aksiyon Barı (Sticky) */}
+            <div className="p-4 border-t border-gray-100 bg-white flex items-center gap-3 shrink-0 pb-8 md:pb-4">
+               
+               {/* Favori Butonu */}
+               <button 
+                 onClick={(e) => toggleFavorite(e, selectedEvent.id)} 
+                 className="p-3 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-600 transition"
+               >
+                 <Heart size={24} className={favorites.includes(selectedEvent.id) ? "fill-brand text-brand" : ""} />
+               </button>
+
+               {/* Paylaş Butonu */}
+               <button 
+                 onClick={() => handleShare(selectedEvent)} 
+                 className="p-3 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-600 transition relative"
+               >
+                 {copied ? <CheckCircle size={24} className="text-green-600"/> : <Share2 size={24} />}
+               </button>
+
+               {/* Bilet Butonu */}
+               {selectedEvent.sold_out ? (
+                 <div className="flex-1 bg-gray-300 text-gray-500 font-bold py-3 rounded-xl flex items-center justify-center gap-2 cursor-not-allowed">
+                   <Ban size={20}/> TÜKENDİ
+                 </div>
+               ) : (
+                 <button 
+                   onClick={(e) => openTicket(e, selectedEvent.ticket_url)}
+                   className="flex-1 bg-brand hover:bg-brand-dark text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 shadow-lg transition transform active:scale-95"
+                 >
+                   <Ticket size={20}/>
+                   {selectedEvent.price?.toLowerCase().includes('ücretsiz') || selectedEvent.price === '0' ? 'ÜCRETSİZ KATIL' : `BİLET AL (${selectedEvent.price})`}
+                 </button>
+               )}
+
+               {/* Yol Tarifi */}
+               <button 
+                 onClick={(e) => openDirections(e, selectedEvent)} 
+                 className="p-3 rounded-xl bg-black text-white hover:bg-gray-800 transition" title="Yol Tarifi"
+               >
+                 <Navigation size={24} />
+               </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* --- ANA HEADER --- */}
       <header className="h-[70px] bg-white border-b border-gray-200 px-6 flex justify-between items-center z-50 shrink-0 shadow-sm">
         <div className="flex items-center gap-3">
           <div className="bg-brand text-white font-black text-xl px-3 py-1 tracking-tighter rounded-sm">18-23</div>
@@ -106,7 +254,7 @@ export default function Home() {
         </div>
       </header>
 
-      {/* İÇERİK */}
+      {/* --- İÇERİK --- */}
       <div className="flex flex-1 flex-col md:flex-row overflow-hidden relative">
         
         {/* HARİTA (SOL) */}
@@ -141,68 +289,34 @@ export default function Home() {
 
              {filteredEvents.map((event) => {
                const isRecommended = userPrefs.includes(event.category);
-               const isFav = favorites.includes(event.id);
-               const isFree = event.price?.toLowerCase().includes('ücretsiz') || event.price === '0';
-               const isSoldOut = event.sold_out; // Sold Out kontrolü
+               const isSoldOut = event.sold_out;
 
                return (
                 <div key={event.id} onClick={() => setSelectedEvent(event)}
-                  className={`group bg-white rounded-3xl cursor-pointer transition-all border relative overflow-hidden ${
-                    selectedEvent?.id === event.id ? 'border-brand ring-1 ring-brand shadow-xl' : 'border-gray-200 hover:border-brand/50 hover:shadow-lg'
-                  }`}>
+                  className={`group bg-white rounded-2xl cursor-pointer transition-all border relative overflow-hidden flex flex-row md:flex-col items-center md:items-stretch h-24 md:h-auto hover:shadow-lg hover:border-brand/30`}>
                   
-                  {/* GÖRSEL ALANI (Varsa Göster) */}
-                  {event.image_url && (
-                    <div className="h-40 bg-gray-200 relative w-full overflow-hidden">
-                      <img src={event.image_url} alt={event.title} className={`w-full h-full object-cover transition-transform duration-500 ${isSoldOut ? 'grayscale' : 'group-hover:scale-105'}`} />
-                      
-                      {/* Sold Out Etiketi */}
-                      {isSoldOut && (
-                         <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-20">
-                            <span className="bg-red-600 text-white font-black text-lg px-4 py-2 transform -rotate-12 border-2 border-white uppercase tracking-widest">SOLD OUT</span>
-                         </div>
-                      )}
+                  {/* GÖRSEL (Mobilde solda küçük, Masaüstünde üstte büyük) */}
+                  <div className="w-24 h-full md:w-full md:h-40 bg-gray-200 shrink-0 relative">
+                    {event.image_url ? (
+                      <img src={event.image_url} alt={event.title} className={`w-full h-full object-cover ${isSoldOut ? 'grayscale' : ''}`} />
+                    ) : (
+                      <div className="w-full h-full bg-brand/10 flex items-center justify-center text-brand font-bold text-xs">18-23</div>
+                    )}
+                    {isSoldOut && <div className="absolute inset-0 bg-black/50 flex items-center justify-center md:hidden"><span className="text-[10px] font-bold text-white bg-red-600 px-1">TÜKENDİ</span></div>}
+                  </div>
 
-                      <button onClick={(e) => toggleFavorite(e, event.id)} className="absolute top-3 right-3 p-2 rounded-full bg-white/80 backdrop-blur hover:bg-white transition z-20 shadow-sm">
-                        <Heart size={20} className={isFav ? "fill-brand text-brand" : "text-gray-400"} />
-                      </button>
-                      <div className="absolute bottom-3 left-3 bg-black/70 backdrop-blur text-white text-[10px] font-bold px-2 py-1 rounded uppercase">{event.category}</div>
+                  {/* İÇERİK */}
+                  <div className="p-3 md:p-4 flex-1 min-w-0">
+                    <div className="flex justify-between items-start mb-1">
+                       <span className="text-[10px] font-bold text-brand uppercase">{event.category}</span>
+                       {isRecommended && !isSoldOut && <Star size={10} className="fill-yellow-400 text-yellow-400"/>}
                     </div>
-                  )}
-
-                  {/* GÖRSEL YOKSA FAVORİ BUTONU İÇERİYE GELİR */}
-                  {!event.image_url && (
-                     <button onClick={(e) => toggleFavorite(e, event.id)} className="absolute top-4 right-4 p-2 rounded-full hover:bg-gray-100 transition z-20">
-                       <Heart size={20} className={isFav ? "fill-brand text-brand" : "text-gray-400"} />
-                     </button>
-                  )}
-
-                  <div className="p-5">
-                    {isRecommended && !isSoldOut && <div className="inline-flex items-center gap-1 bg-yellow-100 text-yellow-800 text-[10px] font-black px-2 py-0.5 rounded mb-2"><Star size={10}/> SENİN İÇİN</div>}
-
-                    <h3 className={`font-bold text-xl text-gray-900 leading-tight mb-2 transition-colors ${!event.image_url && 'pr-10 group-hover:text-brand'}`}>{event.title}</h3>
-                    <p className="text-xs text-gray-500 line-clamp-2 mb-4">{event.description}</p>
-
-                    <div className="flex items-center gap-4 mb-4 text-xs font-medium text-gray-500">
-                        <div className="flex items-center gap-1"><MapPin size={14}/> {event.venue_name}</div>
-                        <div className="flex items-center gap-1"><Calendar size={14}/> {new Date(event.start_time).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
+                    <h3 className="font-bold text-sm md:text-lg text-gray-900 leading-tight truncate md:whitespace-normal mb-1">{event.title}</h3>
+                    <div className="text-xs text-gray-500 flex items-center gap-1 truncate">
+                        <MapPin size={12}/> {event.venue_name}
                     </div>
-
-                    <div className="flex items-center gap-2 pt-4 border-t border-gray-100">
-                       <button onClick={(e) => openDirections(e, event)} className="flex-1 flex items-center justify-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2.5 rounded-xl text-xs font-bold transition"><Map size={16}/> Yol Tarifi</button>
-
-                       {/* FİYAT / BİLET BUTONU MANTIĞI */}
-                       {isSoldOut ? (
-                         <div className="flex-1 flex items-center justify-center gap-2 bg-gray-200 text-gray-500 py-2.5 rounded-xl text-xs font-bold cursor-not-allowed">
-                           <Ban size={16}/> Tükendi
-                         </div>
-                       ) : isFree ? (
-                         <div className="flex-1 flex items-center justify-center gap-2 bg-green-100 text-green-800 py-2.5 rounded-xl text-xs font-bold">Ücretsiz</div>
-                       ) : (
-                         <button onClick={(e) => openTicket(e, event.ticket_url)} className="flex-1 flex items-center justify-center gap-2 bg-brand hover:bg-brand-dark text-white py-2.5 rounded-xl text-xs font-bold transition shadow-md">
-                           {event.ticket_url ? <><Ticket size={16}/> Bilet Al</> : <>{event.price}</>}
-                         </button>
-                       )}
+                    <div className="text-xs text-gray-400 mt-1 md:hidden">
+                        {new Date(event.start_time).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
                     </div>
                   </div>
                 </div>
