@@ -4,13 +4,24 @@
 import { useState, useEffect } from 'react'
 import dynamic from 'next/dynamic'
 import { supabase } from '@/lib/supabase'
-import { MapPin, Calendar, Navigation, Filter, Star, LogOut, Heart, Share2, ExternalLink, Ticket, Map, Ban, X, Clock, CheckCircle } from 'lucide-react'
+import { MapPin, Calendar, Navigation, Filter, Star, LogOut, Heart, Share2, Ticket, Map, Ban, X, Clock, CheckCircle, ChevronDown, Globe } from 'lucide-react'
 import Link from 'next/link'
 
 const MapWithNoSSR = dynamic(() => import('@/components/Map'), { 
   ssr: false,
   loading: () => <div className="h-full w-full flex items-center justify-center bg-gray-100 text-brand font-bold">Harita Yükleniyor...</div>
 })
+
+// Sabit Lokasyonlar
+const PRESET_LOCATIONS = [
+  { name: 'İstanbul (Tümü)', lat: 41.0082, lng: 28.9784, zoom: 11 },
+  { name: '• Kadıköy / Moda', lat: 40.9819, lng: 29.0256, zoom: 14 },
+  { name: '• Beşiktaş / Ortaköy', lat: 41.0422, lng: 29.0060, zoom: 14 },
+  { name: '• Beyoğlu / Taksim', lat: 41.0369, lng: 28.9850, zoom: 14 },
+  { name: 'Ankara', lat: 39.9334, lng: 32.8597, zoom: 12 },
+  { name: 'İzmir', lat: 38.4237, lng: 27.1428, zoom: 12 },
+  { name: 'Eskişehir', lat: 39.7667, lng: 30.5256, zoom: 13 },
+]
 
 export default function Home() {
   const [events, setEvents] = useState<any[]>([])
@@ -19,6 +30,9 @@ export default function Home() {
   const [selectedEvent, setSelectedEvent] = useState<any>(null)
   const [activeCategory, setActiveCategory] = useState<string>('Tümü')
   const [triggerLocate, setTriggerLocate] = useState(false)
+  const [manualLocation, setManualLocation] = useState<any>(null) // Manuel Konum
+  const [showLocModal, setShowLocModal] = useState(false) // Konum Modalı Açık mı?
+  const [currentLocName, setCurrentLocName] = useState('İstanbul') // Görünen İsim
   const [user, setUser] = useState<any>(null)
   const [copied, setCopied] = useState(false)
 
@@ -89,9 +103,18 @@ export default function Home() {
   const categories = ['Tümü', ...Array.from(new Set(events.map(e => e.category)))]
   const filteredEvents = activeCategory === 'Tümü' ? events : events.filter(e => e.category === activeCategory)
 
+  // GPS TETİKLEME
   const handleLocate = () => {
     setTriggerLocate(true)
+    setCurrentLocName("Konumum")
     setTimeout(() => setTriggerLocate(false), 1000)
+  }
+
+  // MANUEL KONUM SEÇME
+  const handleSelectLocation = (loc: any) => {
+    setManualLocation(loc)
+    setCurrentLocName(loc.name.replace('• ', ''))
+    setShowLocModal(false)
   }
 
   const formatHumanDate = (dateStr: string) => {
@@ -108,7 +131,35 @@ export default function Home() {
   return (
     <div className="flex flex-col h-screen w-full bg-white text-black font-sans overflow-hidden">
       
-      {/* --- MODAL (POP-UP) --- */}
+      {/* --- KONUM SEÇİM MODALI --- */}
+      {showLocModal && (
+        <div className="fixed inset-0 z-[2100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden">
+            <div className="p-4 border-b flex justify-between items-center bg-gray-50">
+              <h3 className="font-bold text-gray-800 flex items-center gap-2"><Globe size={18}/> Konum Değiştir</h3>
+              <button onClick={() => setShowLocModal(false)}><X size={20} className="text-gray-500"/></button>
+            </div>
+            <div className="p-2 max-h-[60vh] overflow-y-auto">
+              {PRESET_LOCATIONS.map((loc) => (
+                <button 
+                  key={loc.name}
+                  onClick={() => handleSelectLocation(loc)}
+                  className="w-full text-left p-3 hover:bg-brand/5 rounded-lg text-sm font-medium text-gray-700 border-b border-gray-50 last:border-0 transition-colors"
+                >
+                  {loc.name}
+                </button>
+              ))}
+            </div>
+            <div className="p-4 bg-gray-50 border-t">
+              <button onClick={() => { handleLocate(); setShowLocModal(false); }} className="w-full bg-black text-white py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2">
+                <Navigation size={16}/> Konumumu Bul (GPS)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- ETKİNLİK DETAY MODALI --- */}
       {selectedEvent && (
         <div className="fixed inset-0 z-[2000] flex items-center justify-center p-0 md:p-4">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setSelectedEvent(null)}></div>
@@ -117,7 +168,6 @@ export default function Home() {
               <X size={24} />
             </button>
 
-            {/* Modal Görseli (Varsa Göster) */}
             {selectedEvent.image_url && (
               <div className="h-64 md:h-72 bg-gray-200 relative shrink-0">
                 <img src={selectedEvent.image_url} className={`w-full h-full object-cover ${selectedEvent.sold_out ? 'grayscale' : ''}`} />
@@ -171,24 +221,33 @@ export default function Home() {
       )}
 
       {/* --- HEADER --- */}
-      <header className="h-[70px] bg-white border-b border-gray-200 px-6 flex justify-between items-center z-50 shrink-0 shadow-sm">
-        <div className="flex items-center gap-3">
-          <div className="bg-brand text-white font-black text-xl px-3 py-1 tracking-tighter rounded-sm">18-23</div>
-          <div className="hidden md:block text-[10px] text-gray-400 font-bold leading-tight">MESAI SONRASI<br/>ETKİNLİK REHBERİ</div>
+      <header className="h-[70px] bg-white border-b border-gray-200 px-4 md:px-6 flex justify-between items-center z-50 shrink-0 shadow-sm">
+        <div className="flex items-center gap-4">
+          
+          {/* LOGO */}
+          <div className="flex items-center gap-2">
+             <div className="bg-brand text-white font-black text-xl px-3 py-1 tracking-tighter rounded-sm">18-23</div>
+          </div>
+
+          {/* ŞEHİR SEÇİCİ (YENİ) */}
+          <button 
+            onClick={() => setShowLocModal(true)}
+            className="flex items-center gap-1 text-sm font-bold text-gray-700 hover:bg-gray-100 px-3 py-1.5 rounded-full transition"
+          >
+            <MapPin size={16} className="text-brand"/>
+            {currentLocName}
+            <ChevronDown size={14} className="text-gray-400"/>
+          </button>
+
         </div>
+
         <div className="flex items-center gap-4">
           {user ? (
             <div className="flex items-center gap-3">
-              <div className="text-right hidden md:block">
-                <Link href="/profile" className="text-right hidden md:block hover:opacity-70 transition cursor-pointer">
-                  <div className="text-xs font-bold text-gray-900">{user.email.split('@')[0]}</div>
-                  <div className="text-[10px] text-gray-500 flex justify-end gap-1">
-                   <span>{userPrefs.length} İlgi Alanı</span>
-                    <span>•</span>
-                   <span>{favorites.length} Favori</span>
-                  </div>
-                </Link>
-              </div>
+              <Link href="/profile" className="text-right hidden md:block hover:opacity-70 transition cursor-pointer">
+                <div className="text-xs font-bold text-gray-900">{user.email.split('@')[0]}</div>
+                <div className="text-[10px] text-gray-500 flex justify-end gap-1"><span>{favorites.length} Favori</span></div>
+              </Link>
               <button onClick={async () => { await supabase.auth.signOut(); window.location.reload(); }} className="text-gray-400 hover:text-brand transition"><LogOut size={18} /></button>
             </div>
           ) : (
@@ -201,8 +260,19 @@ export default function Home() {
       <div className="flex flex-1 flex-col md:flex-row overflow-hidden relative">
         
         <div className="h-[40%] md:h-full md:w-[60%] bg-gray-100 relative order-1 md:order-2">
-          <MapWithNoSSR events={filteredEvents} selectedEvent={selectedEvent} triggerLocate={triggerLocate} markerMode="title" />
-          <button onClick={handleLocate} className="absolute top-4 right-4 z-[1000] bg-white p-3 rounded-xl shadow-lg hover:bg-brand hover:text-white transition text-gray-700 border border-gray-200"><Navigation size={20} /></button>
+          <MapWithNoSSR 
+            events={filteredEvents} 
+            selectedEvent={selectedEvent} 
+            triggerLocate={triggerLocate} 
+            markerMode="title" 
+            manualLocation={manualLocation} // Manuel konumu haritaya ilet
+          />
+          
+          {/* Hızlı GPS Butonu (Harita Üstü) */}
+          <button onClick={handleLocate} className="absolute top-4 right-4 z-[1000] bg-white p-3 rounded-xl shadow-lg hover:bg-brand hover:text-white transition text-gray-700 border border-gray-200">
+             <Navigation size={20} />
+          </button>
+
           <div className="md:hidden absolute top-4 left-4 right-16 z-[900] overflow-x-auto no-scrollbar">
              <div className="flex gap-2">
                {categories.map(cat => (
@@ -234,29 +304,19 @@ export default function Home() {
                 <div key={event.id} onClick={() => setSelectedEvent(event)}
                   className={`group bg-white rounded-3xl cursor-pointer transition-all border relative overflow-hidden flex flex-row md:flex-col items-stretch md:items-stretch h-32 md:h-auto hover:shadow-lg hover:border-brand/30 ${!event.image_url ? 'h-auto' : ''}`}>
                   
-                  {/* --- GÖRSEL ALANI (Sadece Varsa Göster) --- */}
                   {event.image_url && (
                     <div className="w-32 h-full md:w-full md:h-40 bg-gray-200 shrink-0 relative">
                       <img src={event.image_url} alt={event.title} className={`w-full h-full object-cover ${isSoldOut ? 'grayscale' : ''}`} />
                       {isSoldOut && <div className="absolute inset-0 bg-black/50 flex items-center justify-center"><span className="text-[10px] font-bold text-white bg-red-600 px-1 rounded">TÜKENDİ</span></div>}
-                      
-                      {/* Kategori (Sadece Resim varsa resim üstünde, yoksa metin içinde) */}
                       <div className="absolute bottom-2 left-2 bg-black/60 backdrop-blur text-white text-[10px] font-bold px-2 py-0.5 rounded uppercase md:block hidden">{event.category}</div>
                     </div>
                   )}
 
-                  {/* --- İÇERİK ALANI --- */}
                   <div className="p-3 md:p-4 flex-1 min-w-0 flex flex-col justify-between">
-                    
-                    {/* Üst Satır: Kategori (Resim yoksa) + FİYAT */}
                     <div className="flex justify-between items-start mb-1">
                        {!event.image_url && <span className="text-[10px] font-bold uppercase text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">{event.category}</span>}
-                       {event.image_url && <div className="md:hidden"></div> /* Boşluk doldurucu */}
-                       
-                       {/* FİYAT VİTRİNİ (İSTEK 1: Burada Görünsün) */}
-                       <span className="text-xs font-black text-brand bg-red-50 px-2 py-1 rounded whitespace-nowrap ml-auto">
-                         {event.price === '0' || event.price?.toLowerCase().includes('ücretsiz') ? 'Ücretsiz' : event.price}
-                       </span>
+                       {event.image_url && <div className="md:hidden"></div>}
+                       <span className="text-xs font-black text-brand bg-red-50 px-2 py-1 rounded whitespace-nowrap ml-auto">{event.price === '0' || event.price?.toLowerCase().includes('ücretsiz') ? 'Ücretsiz' : event.price}</span>
                     </div>
 
                     <div>
@@ -267,11 +327,8 @@ export default function Home() {
                         <div className="text-xs text-gray-500 flex items-center gap-1 mt-1 truncate"><MapPin size={12}/> {event.venue_name}</div>
                     </div>
                     
-                    {/* Alt Satır: Saat ve Favori */}
                     <div className="flex justify-between items-end mt-2">
                         <div className="text-xs text-gray-400 font-medium">{new Date(event.start_time).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
-                        
-                        {/* Favori Butonu (Kart İçinde) */}
                         <button onClick={(e) => toggleFavorite(e, event.id)} className="p-1.5 rounded-full hover:bg-gray-100 text-gray-400 z-10 relative">
                            <Heart size={16} className={isFav ? "fill-brand text-brand" : ""} />
                         </button>

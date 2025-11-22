@@ -1,35 +1,55 @@
+// components/Map.tsx
 'use client'
 
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import L from 'leaflet'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
-// Dinamik Pin Oluşturucu (Moda göre içerik değişir)
+// Özel Pinler
 const createDynamicIcon = (text: string, isSelected: boolean) => {
   return L.divIcon({
     className: 'custom-icon',
     html: `<div class="map-marker ${isSelected ? 'selected' : ''}">${text}</div>`,
     iconSize: [null as any, 30],
-    iconAnchor: [30, 35] // Pinin ucu tam noktaya gelsin
+    iconAnchor: [30, 35]
   })
 }
 
-// Kontrolcü
-function MapController({ selectedEvent, triggerLocate }: { selectedEvent: any, triggerLocate: boolean }) {
+// Mavi Nokta İkonu
+const gpsIcon = L.divIcon({
+  className: 'gps-icon-wrapper',
+  html: `<div class="gps-marker"></div>`,
+  iconSize: [20, 20],
+  iconAnchor: [10, 10]
+})
+
+// Harita Kontrolcüsü (Beyin)
+function MapController({ selectedEvent, triggerLocate, manualLocation, onLocationFound }: any) {
   const map = useMap()
 
+  // 1. Etkinlik Seçilince Uç
   useEffect(() => {
     if (selectedEvent) {
       map.flyTo([selectedEvent.lat, selectedEvent.lng], 15, { animate: true, duration: 1.2 })
     }
   }, [selectedEvent, map])
 
+  // 2. Manuel Konum Seçilince Uç
+  useEffect(() => {
+    if (manualLocation) {
+      map.flyTo([manualLocation.lat, manualLocation.lng], manualLocation.zoom, { animate: true, duration: 1.5 })
+    }
+  }, [manualLocation, map])
+
+  // 3. GPS Tetiklenince
   useEffect(() => {
     if (triggerLocate) {
       map.locate().on("locationfound", function (e) {
         map.flyTo(e.latlng, 14, { animate: true });
-        L.circleMarker(e.latlng, { radius: 8, color: '#800020', fillColor: '#800020', fillOpacity: 0.8 }).addTo(map);
+        onLocationFound(e.latlng) // Ana sayfaya "buldum" de
+      }).on("locationerror", function (e) {
+        alert("Konum alınamadı. Lütfen manuel seçim yapın veya izinleri kontrol edin.");
       });
     }
   }, [triggerLocate, map])
@@ -42,9 +62,12 @@ interface MapProps {
   selectedEvent: any;
   triggerLocate: boolean;
   markerMode: 'title' | 'price' | 'category';
+  manualLocation: any; // Yeni prop
 }
 
-export default function Map({ events, selectedEvent, triggerLocate, markerMode }: MapProps) {
+export default function Map({ events, selectedEvent, triggerLocate, markerMode, manualLocation }: MapProps) {
+  const [userPos, setUserPos] = useState<any>(null)
+
   return (
     <MapContainer center={[41.0082, 28.9784]} zoom={12} style={{ height: '100%', width: '100%' }} zoomControl={false}>
       <TileLayer
@@ -52,10 +75,18 @@ export default function Map({ events, selectedEvent, triggerLocate, markerMode }
         attribution='&copy; OpenStreetMap &copy; CARTO'
       />
       
-      <MapController selectedEvent={selectedEvent} triggerLocate={triggerLocate} />
+      <MapController 
+        selectedEvent={selectedEvent} 
+        triggerLocate={triggerLocate} 
+        manualLocation={manualLocation}
+        onLocationFound={(pos: any) => setUserPos(pos)}
+      />
 
+      {/* Kullanıcı Konumu (Mavi Nokta) */}
+      {userPos && <Marker position={userPos} icon={gpsIcon}><Popup>Buradasınız</Popup></Marker>}
+
+      {/* Etkinlikler */}
       {events.map((event) => {
-        // Mod'a göre pin metnini belirle
         let text = event.title;
         if (markerMode === 'price') text = event.price;
         if (markerMode === 'category') text = event.category;

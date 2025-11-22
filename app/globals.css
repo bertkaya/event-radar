@@ -66,3 +66,21 @@ body {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+/* app/globals.css EN ALTA EKLE */
+
+/* GPS Mavi Nokta Animasyonu */
+@keyframes pulse-blue {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); }
+  70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(59, 130, 246, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+}
+
+.gps-marker {
+  background-color: #3b82f6;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 2px solid white;
+  box-shadow: 0 0 5px rgba(0,0,0,0.3);
+  animation: pulse-blue 2s infinite;
+}
