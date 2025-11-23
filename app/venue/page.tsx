@@ -4,7 +4,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
-import { Plus, Clock, CheckCircle, XCircle, MapPin, Calendar, Image as ImageIcon, LogOut } from 'lucide-react'
+import { Plus, Clock, CheckCircle, MapPin, Calendar, Image as ImageIcon, LogOut } from 'lucide-react'
 
 export default function VenuePortal() {
   const [user, setUser] = useState<any>(null)
@@ -65,8 +65,12 @@ export default function VenuePortal() {
 
     try {
       const isoDate = new Date(`${formData.date}T${formData.time}`).toISOString()
+      
+      // Hassas konum (Virgül/Nokta düzeltme)
       const cleanLat = parseFloat(formData.lat.toString().replace(',', '.').trim())
       const cleanLng = parseFloat(formData.lng.toString().replace(',', '.').trim())
+
+      if (isNaN(cleanLat) || isNaN(cleanLng)) throw new Error("Koordinat formatı hatalı!")
 
       const { error } = await supabase.from('events').insert([{
         title: formData.title,
@@ -142,9 +146,11 @@ export default function VenuePortal() {
               </div>
               
               <div className="grid md:grid-cols-3 gap-4">
+                {/* DÜZELTİLEN KISIM BURASI */}
                 <select name="category" value={formData.category} onChange={handleChange} className="border p-3 rounded-lg bg-white">
-                   {['Müzik', 'Tiyatro', 'Sanat', 'Spor', 'Komedi', 'Sinema', 'Yeme-İçme', 'Workshop', 'Çocuk].map(c => <option key={c}>{c}</option>)}
+                   {['Müzik', 'Tiyatro', 'Sanat', 'Spor', 'Komedi', 'Sinema', 'Yeme-İçme', 'Workshop', 'Çocuk'].map(c => <option key={c}>{c}</option>)}
                 </select>
+                
                 <input name="price" value={formData.price} onChange={handleChange} required className="border p-3 rounded-lg" placeholder="Fiyat (250 TL)" />
                 <input name="ticket_url" value={formData.ticket_url} onChange={handleChange} className="border p-3 rounded-lg" placeholder="Bilet Linki" />
               </div>
@@ -160,9 +166,9 @@ export default function VenuePortal() {
                  </div>
               </div>
 
-              <div className="flex gap-2 hidden"> {/* Koordinatlar gizli input olarak tutulur */}
-                 <input name="lat" value={formData.lat} readOnly />
-                 <input name="lng" value={formData.lng} readOnly />
+              <div className="flex gap-2"> 
+                 <input name="lat" value={formData.lat} onChange={handleChange} required placeholder="Enlem" className="border p-3 rounded-lg w-1/2" />
+                 <input name="lng" value={formData.lng} onChange={handleChange} required placeholder="Boylam" className="border p-3 rounded-lg w-1/2" />
               </div>
 
               <input name="image_url" value={formData.image_url} onChange={handleChange} className="border p-3 rounded-lg w-full" placeholder="Poster URL (Resim Linki)" />
