@@ -143,7 +143,7 @@ export default function VenuePortal() {
               
               <div className="grid md:grid-cols-3 gap-4">
                 <select name="category" value={formData.category} onChange={handleChange} className="border p-3 rounded-lg bg-white">
-                   {['Müzik', 'Tiyatro', 'Sanat', 'Spor', 'Komedi', 'Sinema', 'Yeme-İçme'].map(c => <option key={c}>{c}</option>)}
+                   {['Müzik', 'Tiyatro', 'Sanat', 'Spor', 'Komedi', 'Sinema', 'Yeme-İçme', 'Workshop', 'Çocuk].map(c => <option key={c}>{c}</option>)}
                 </select>
                 <input name="price" value={formData.price} onChange={handleChange} required className="border p-3 rounded-lg" placeholder="Fiyat (250 TL)" />
                 <input name="ticket_url" value={formData.ticket_url} onChange={handleChange} className="border p-3 rounded-lg" placeholder="Bilet Linki" />
