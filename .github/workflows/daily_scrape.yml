@@ -2,9 +2,8 @@ name: Gunluk Etkinlik Avcisi
 
 on:
   schedule:
-    # Her sabah 06:00 UTC (Türkiye saatiyle 09:00)
     - cron: '0 6 * * *'
-  workflow_dispatch: # Elle tetiklemek için buton ekler
+  workflow_dispatch:
 
 jobs:
   scrape:
@@ -14,8 +13,10 @@ jobs:
       - name: Depoyu Çek
         uses: actions/checkout@v3
 
+      # --- İŞTE BU ADIM BİZE DOSYANIN NEREDE OLDUĞUNU GÖSTERECEK ---
       - name: Dosya Yapisini Listele (Hata Ayiklama)
         run: ls -R
+      # -----------------------------------------------------------
 
       - name: Python Kur
         uses: actions/setup-python@v4
@@ -27,10 +28,12 @@ jobs:
 
       - name: Kutuphaneleri Yukle
         run: |
-          pip install requests beautifulsoup4 supabase selenium webdriver-manager geopy
+          pip install requests beautifulsoup4 supabase selenium webdriver-manager geopy undetected-chromedriver
 
+      # Şimdilik sadece bu botu deneyelim, path'i sonra düzelteceğiz
       - name: Biletinial Botunu Calistir
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        continue-on-error: true # Hata olsa bile logları görelim diye
         run: python scripts/bot_biletinial.py
