@@ -1,22 +1,22 @@
 // app/admin/page.tsx
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
-import { Trash2, Edit, Upload, ImageIcon, MapPin, Calendar, Check, AlertTriangle, Ban, Music, Inbox, List, Phone, Mail, User } from 'lucide-react'
+import { Trash2, Edit, Upload, ImageIcon, MapPin, Calendar, Check, AlertTriangle, Ban, Music, Inbox, List, Phone, Mail, User, FileSpreadsheet, Download } from 'lucide-react'
+import * as XLSX from 'xlsx'
 
 export default function Admin() {
-  const [activeTab, setActiveTab] = useState<'events' | 'applications'>('events') // Sekme Yönetimi
+  const [activeTab, setActiveTab] = useState<'events' | 'applications'>('events')
   const [loading, setLoading] = useState(false)
   const [msg, setMsg] = useState('')
   const [pin, setPin] = useState('')
+  const fileInputRef = useRef<HTMLInputElement>(null)
   
-  // Veriler
   const [events, setEvents] = useState<any[]>([])
   const [applications, setApplications] = useState<any[]>([])
-  
   const [editingId, setEditingId] = useState<number | null>(null)
-  const [bulkData, setBulkData] = useState('')
+  const [bulkData, setBulkData] = useState('') // JSON alanı yedek olarak kalsın (isteğe bağlı)
 
   // Form
   const [formData, setFormData] = useState({
@@ -40,16 +40,112 @@ export default function Admin() {
     if (data) setApplications(data)
   }
 
-  // --- BAŞVURU İŞLEMLERİ ---
+  // --- EXCEL İŞLEMLERİ ---
+
+  // 1. Boş Şablon İndir
+  const downloadTemplate = () => {
+    const headers = [
+      {
+        "Baslik": "Örnek Konser",
+        "Mekan": "Jolly Joker",
+        "Adres": "Kavaklıdere, Ankara",
+        "Kategori": "Müzik",
+        "Fiyat": "250 TL",
+        "Tarih_Saat": "2025-12-30 21:00",
+        "Enlem": "39.9173",
+        "Boylam": "32.8606",
+        "Aciklama": "Detaylı açıklama buraya...",
+        "Resim_Link": "",
+        "Bilet_Link": ""
+      }
+    ]
+    const ws = XLSX.utils.json_to_sheet(headers);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Etkinlikler");
+    XLSX.writeFile(wb, "Etkinlik_Yukleme_Sablonu.xlsx");
+  }
+
+  // 2. Excel Dosyasını Oku ve Yükle
+  const handleExcelUpload = (e: any) => {
+    if (pin !== '1823') {
+        if(fileInputRef.current) fileInputRef.current.value = ''
+        return alert('PIN girin!')
+    }
+
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (evt: any) => {
+      try {
+        const bstr = evt.target.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json(ws);
+
+        if (data.length === 0) return alert('Dosya boş!');
+
+        if (!confirm(`${data.length} adet etkinlik yüklenecek. Onaylıyor musun?`)) return;
+
+        setLoading(true);
+        
+        // Veriyi Supabase formatına çevir
+        const formattedData = data.map((row: any) => {
+            // Tarih formatını kontrol et (Excel bazen tarihleri sayı olarak verir, biz metin istiyoruz)
+            let isoDate = new Date().toISOString();
+            try {
+                // "2025-12-30 21:00" formatını bekle
+                if (row.Tarih_Saat) {
+                    isoDate = new Date(row.Tarih_Saat).toISOString();
+                }
+            } catch (err) {
+                console.log("Tarih hatası, şimdiki zaman atandı:", row.Baslik);
+            }
+
+            return {
+                title: row.Baslik || "Başlıksız",
+                venue_name: row.Mekan || "Belirsiz Mekan",
+                address: row.Adres || "",
+                category: row.Kategori || "Müzik",
+                price: row.Fiyat || "Belirsiz",
+                start_time: isoDate,
+                lat: parseFloat(row.Enlem || 0),
+                lng: parseFloat(row.Boylam || 0),
+                description: row.Aciklama || "",
+                image_url: row.Resim_Link || "",
+                ticket_url: row.Bilet_Link || "",
+                is_approved: true, // Admin yüklediği için onaylı
+                sold_out: false
+            }
+        });
+
+        const { error } = await supabase.from('events').insert(formattedData);
+        
+        if (error) throw error;
+        
+        alert('✅ Excel başarıyla yüklendi!');
+        fetchEvents();
+        
+      } catch (error: any) {
+        alert('Hata: Excel formatı uygun değil veya veritabanı hatası.\n' + error.message);
+      } finally {
+        setLoading(false);
+        if(fileInputRef.current) fileInputRef.current.value = ''
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  // --- MEVCUT DİĞER FONKSİYONLAR ---
+  
   const handleDeleteApplication = async (id: number) => {
-    if (!confirm('Bu başvuruyu silmek istediğine emin misin?')) return
+    if (!confirm('Silmek istediğine emin misin?')) return
     if (pin !== '1823') return alert('PIN girin!')
-    
     await supabase.from('venue_applications').delete().eq('id', id)
     fetchApplications()
   }
 
-  // --- ETKİNLİK İŞLEMLERİ ---
   const formatEuroDate = (dateString: string) => {
     const date = new Date(dateString)
     return new Intl.DateTimeFormat('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(date)
@@ -123,22 +219,13 @@ export default function Admin() {
     finally { setLoading(false) }
   }
 
-  const handleBulkUpload = async () => {
-    if (pin !== '1823') return alert('PIN girin!');
-    try {
-      const json = JSON.parse(bulkData);
-      await supabase.from('events').insert(json);
-      alert('Toplu yükleme başarılı!'); fetchEvents(); setBulkData('');
-    } catch (err) { alert('JSON Formatı Hatalı') }
-  }
-
   const handleChange = (e: any) => {
     const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value
     setFormData({ ...formData, [e.target.name]: value })
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-12 px-4 font-sans text-gray-800 dark:text-gray-100">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-12 px-4 font-sans text-gray-800 dark:text-gray-100 pb-32">
       <div className="max-w-5xl mx-auto space-y-8">
         
         {/* GİRİŞ VE TABLAR */}
@@ -148,82 +235,38 @@ export default function Admin() {
                 <input value={pin} onChange={(e) => setPin(e.target.value)} type="password" className="border p-2 rounded outline-none focus:border-brand dark:bg-gray-700 dark:border-gray-600 w-full" placeholder="PIN" />
             </div>
 
-            {/* SEKME DEĞİŞTİRİCİ */}
             <div className="bg-gray-200 dark:bg-gray-800 p-1 rounded-lg flex gap-1 w-full md:w-auto">
-                <button 
-                    onClick={() => setActiveTab('events')} 
-                    className={`flex items-center gap-2 px-6 py-2 rounded-md text-sm font-bold transition flex-1 justify-center ${activeTab === 'events' ? 'bg-white dark:bg-gray-600 shadow-sm text-brand' : 'text-gray-500 hover:text-gray-700'}`}
-                >
-                    <List size={16}/> Etkinlikler
-                </button>
-                <button 
-                    onClick={() => setActiveTab('applications')} 
-                    className={`flex items-center gap-2 px-6 py-2 rounded-md text-sm font-bold transition flex-1 justify-center ${activeTab === 'applications' ? 'bg-white dark:bg-gray-600 shadow-sm text-brand' : 'text-gray-500 hover:text-gray-700'}`}
-                >
-                    <Inbox size={16}/> Başvurular
-                    {applications.length > 0 && <span className="bg-red-500 text-white text-[10px] px-1.5 rounded-full">{applications.length}</span>}
-                </button>
+                <button onClick={() => setActiveTab('events')} className={`flex items-center gap-2 px-6 py-2 rounded-md text-sm font-bold transition flex-1 justify-center ${activeTab === 'events' ? 'bg-white dark:bg-gray-600 shadow-sm text-brand' : 'text-gray-500 hover:text-gray-700'}`}><List size={16}/> Etkinlikler</button>
+                <button onClick={() => setActiveTab('applications')} className={`flex items-center gap-2 px-6 py-2 rounded-md text-sm font-bold transition flex-1 justify-center ${activeTab === 'applications' ? 'bg-white dark:bg-gray-600 shadow-sm text-brand' : 'text-gray-500 hover:text-gray-700'}`}><Inbox size={16}/> Başvurular {applications.length > 0 && <span className="bg-red-500 text-white text-[10px] px-1.5 rounded-full">{applications.length}</span>}</button>
             </div>
         </div>
 
-        {/* --- SEKME 1: ETKİNLİK YÖNETİMİ --- */}
         {activeTab === 'events' && (
             <div className="space-y-8 animate-in fade-in">
                 {/* FORM */}
                 <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-                <div className={`${editingId ? 'bg-yellow-500' : 'bg-brand'} p-6 text-white text-center transition-colors`}>
-                    <h1 className="text-2xl font-black tracking-tighter">{editingId ? 'DÜZENLEME MODU' : 'YENİ ETKİNLİK EKLE'}</h1>
-                </div>
-
+                <div className={`${editingId ? 'bg-yellow-500' : 'bg-brand'} p-6 text-white text-center transition-colors`}><h1 className="text-2xl font-black tracking-tighter">{editingId ? 'DÜZENLEME MODU' : 'YENİ ETKİNLİK EKLE'}</h1></div>
                 <div className="p-8">
                     <form onSubmit={handleSubmit} className="space-y-6">
+                    {/* Form İçeriği (Değişmedi, sadece wrapper) */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="space-y-4">
                         <input name="title" value={formData.title} onChange={handleChange} required className="w-full border p-3 rounded-lg dark:bg-gray-700 dark:border-gray-600" placeholder="Etkinlik Adı" />
-                        <div className="space-y-2">
-                            <input name="venue" value={formData.venue} onChange={handleChange} required className="w-full border p-3 rounded-lg dark:bg-gray-700 dark:border-gray-600" placeholder="Mekan Adı" />
-                            <textarea name="address" value={formData.address} onChange={handleChange} rows={2} className="w-full border p-3 rounded-lg resize-none text-sm bg-gray-50 dark:bg-gray-900 dark:border-gray-600" placeholder="Açık Adres"></textarea>
+                        <div className="space-y-2"><input name="venue" value={formData.venue} onChange={handleChange} required className="w-full border p-3 rounded-lg dark:bg-gray-700 dark:border-gray-600" placeholder="Mekan Adı" /><textarea name="address" value={formData.address} onChange={handleChange} rows={2} className="w-full border p-3 rounded-lg resize-none text-sm bg-gray-50 dark:bg-gray-900 dark:border-gray-600" placeholder="Açık Adres"></textarea></div>
+                        <select name="category" value={formData.category} onChange={handleChange} className="w-full border p-3 rounded-lg bg-white dark:bg-gray-700 dark:border-gray-600">{['Müzik', 'Tiyatro', 'Sanat', 'Spor', 'Komedi', 'Sinema', 'Yeme-İçme', 'Workshop', 'Çocuk'].map(c => <option key={c}>{c}</option>)}</select>
+                        <div className="flex gap-2 items-center bg-gray-50 dark:bg-gray-900 p-3 rounded-lg border cursor-pointer" onClick={() => setFormData({...formData, sold_out: !formData.sold_out})}><input type="checkbox" name="sold_out" checked={formData.sold_out} onChange={handleChange} className="w-5 h-5 cursor-pointer" /><span className="font-bold text-red-600 text-sm flex items-center gap-1"><Ban size={16}/> SOLD OUT</span></div>
                         </div>
-                        <select name="category" value={formData.category} onChange={handleChange} className="w-full border p-3 rounded-lg bg-white dark:bg-gray-700 dark:border-gray-600">
-                            {['Müzik', 'Tiyatro', 'Sanat', 'Spor', 'Komedi', 'Sinema', 'Yeme-İçme', 'Workshop', 'Çocuk'].map(c => <option key={c}>{c}</option>)}
-                        </select>
-                        <div className="flex gap-2 items-center bg-gray-50 dark:bg-gray-900 p-3 rounded-lg border cursor-pointer" onClick={() => setFormData({...formData, sold_out: !formData.sold_out})}>
-                            <input type="checkbox" name="sold_out" checked={formData.sold_out} onChange={handleChange} className="w-5 h-5 cursor-pointer" />
-                            <span className="font-bold text-red-600 text-sm flex items-center gap-1"><Ban size={16}/> SOLD OUT</span>
-                        </div>
-                        </div>
-                        
                         <div className="space-y-4">
                         <input name="price" value={formData.price} onChange={handleChange} required className="w-full border p-3 rounded-lg dark:bg-gray-700 dark:border-gray-600" placeholder="Fiyat" />
-                        <div className="flex gap-2">
-                            <input type="date" name="date" value={formData.date} onChange={handleChange} required className="w-full border p-3 rounded-lg dark:bg-gray-700 dark:border-gray-600" />
-                            <input type="time" name="time" value={formData.time} onChange={handleChange} required className="w-full border p-3 rounded-lg dark:bg-gray-700 dark:border-gray-600" />
-                        </div>
-                        <div className="bg-blue-50 dark:bg-gray-900 p-3 rounded-lg border border-blue-100 dark:border-gray-700">
-                            <div className="flex gap-2 mb-2">
-                                <input name="maps_url" value={formData.maps_url} onChange={handleChange} placeholder="Google Maps Linki" className="w-full border p-2 rounded text-xs dark:bg-gray-800" />
-                                <button type="button" onClick={extractCoordsFromLink} className="bg-blue-600 text-white px-3 rounded text-xs font-bold hover:bg-blue-700">Çek</button>
-                            </div>
-                            <div className="flex gap-2">
-                                <input name="lat" value={formData.lat} onChange={handleChange} required placeholder="Lat" className="w-1/2 border p-2 rounded text-sm font-mono dark:bg-gray-800" />
-                                <input name="lng" value={formData.lng} onChange={handleChange} required placeholder="Lng" className="w-1/2 border p-2 rounded text-sm font-mono dark:bg-gray-800" />
-                            </div>
-                        </div>
+                        <div className="flex gap-2"><input type="date" name="date" value={formData.date} onChange={handleChange} required className="w-full border p-3 rounded-lg dark:bg-gray-700 dark:border-gray-600" /><input type="time" name="time" value={formData.time} onChange={handleChange} required className="w-full border p-3 rounded-lg dark:bg-gray-700 dark:border-gray-600" /></div>
+                        <div className="bg-blue-50 dark:bg-gray-900 p-3 rounded-lg border border-blue-100 dark:border-gray-700"><div className="flex gap-2 mb-2"><input name="maps_url" value={formData.maps_url} onChange={handleChange} placeholder="Google Maps Linki" className="w-full border p-2 rounded text-xs dark:bg-gray-800" /><button type="button" onClick={extractCoordsFromLink} className="bg-blue-600 text-white px-3 rounded text-xs font-bold hover:bg-blue-700">Çek</button></div><div className="flex gap-2"><input name="lat" value={formData.lat} onChange={handleChange} required placeholder="Lat" className="w-1/2 border p-2 rounded text-sm font-mono dark:bg-gray-800" /><input name="lng" value={formData.lng} onChange={handleChange} required placeholder="Lng" className="w-1/2 border p-2 rounded text-sm font-mono dark:bg-gray-800" /></div></div>
                         </div>
                     </div>
-
                     <div className="space-y-2">
-                        <div className="flex gap-2">
-                        <input name="image_url" value={formData.image_url} onChange={handleChange} className="w-1/2 border p-3 rounded-lg text-sm dark:bg-gray-700 dark:border-gray-600" placeholder="Poster URL" />
-                        <input name="ticket_url" value={formData.ticket_url} onChange={handleChange} className="w-1/2 border p-3 rounded-lg text-sm dark:bg-gray-700 dark:border-gray-600" placeholder="Bilet Linki" />
-                        </div>
-                        <div className="relative">
-                        <Music className="absolute left-3 top-3 text-gray-400" size={18}/>
-                        <input name="media_url" value={formData.media_url} onChange={handleChange} className="w-full border p-3 pl-10 rounded-lg text-sm dark:bg-gray-700 dark:border-gray-600" placeholder="Spotify / YouTube Playlist Linki" />
-                        </div>
+                        <div className="flex gap-2"><input name="image_url" value={formData.image_url} onChange={handleChange} className="w-1/2 border p-3 rounded-lg text-sm dark:bg-gray-700 dark:border-gray-600" placeholder="Poster URL" /><input name="ticket_url" value={formData.ticket_url} onChange={handleChange} className="w-1/2 border p-3 rounded-lg text-sm dark:bg-gray-700 dark:border-gray-600" placeholder="Bilet Linki" /></div>
+                        <div className="relative"><Music className="absolute left-3 top-3 text-gray-400" size={18}/><input name="media_url" value={formData.media_url} onChange={handleChange} className="w-full border p-3 pl-10 rounded-lg text-sm dark:bg-gray-700 dark:border-gray-600" placeholder="Spotify / YouTube Playlist Linki" /></div>
                         <textarea name="description" value={formData.description} onChange={handleChange} rows={3} className="w-full border p-3 rounded-lg resize-none dark:bg-gray-700 dark:border-gray-600" placeholder="Detaylar..."></textarea>
                     </div>
-
                     <div className="flex gap-3">
                         {editingId && <button type="button" onClick={handleCancelEdit} className="flex-1 bg-gray-500 text-white p-4 rounded-xl font-bold">İptal</button>}
                         <button className={`flex-[2] text-white p-4 rounded-xl font-bold shadow-lg ${editingId ? 'bg-yellow-500 hover:bg-yellow-600' : 'bg-brand hover:bg-brand-dark'}`}>{loading ? 'İşleniyor...' : (editingId ? 'Kaydet' : 'Yayınla')}</button>
@@ -231,6 +274,28 @@ export default function Admin() {
                     {msg && <div className="text-center p-3 rounded-lg font-bold bg-gray-100 dark:bg-gray-900 dark:text-white">{msg}</div>}
                     </form>
                 </div>
+                </div>
+
+                {/* EXCEL YÜKLEME ALANI (YENİ) */}
+                <div className="bg-green-50 dark:bg-gray-800 p-6 rounded-2xl shadow border border-green-100 dark:border-gray-700">
+                    <h3 className="font-bold text-green-800 dark:text-green-400 mb-4 flex items-center gap-2"><FileSpreadsheet size={20}/> Excel ile Toplu Yükleme</h3>
+                    
+                    <div className="flex flex-col md:flex-row gap-4 items-center">
+                        <button onClick={downloadTemplate} className="flex items-center gap-2 bg-white dark:bg-gray-700 text-gray-700 dark:text-white px-4 py-3 rounded-xl border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 text-sm font-bold shadow-sm transition w-full md:w-auto justify-center">
+                            <Download size={16}/> Taslak İndir
+                        </button>
+                        
+                        <div className="flex-1 w-full relative">
+                            <input 
+                                ref={fileInputRef}
+                                type="file" 
+                                accept=".xlsx, .xls" 
+                                onChange={handleExcelUpload}
+                                className="block w-full text-sm text-gray-500 file:mr-4 file:py-3 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-green-600 file:text-white hover:file:bg-green-700 cursor-pointer bg-white dark:bg-gray-700 rounded-xl border border-gray-200 dark:border-gray-600"
+                            />
+                        </div>
+                    </div>
+                    <p className="text-[10px] text-gray-400 mt-3 ml-1">*Taslağı indirip doldurun ve tekrar yükleyin. Tarih formatı: YYYY-AA-GG SS:DD (Örn: 2025-12-30 21:00)</p>
                 </div>
 
                 {/* LİSTE */}
@@ -259,58 +324,28 @@ export default function Admin() {
                     ))}
                 </div>
                 </div>
-                
-                {/* TOPLU YÜKLEME (En altta gizli gibi kalsın) */}
-                <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow border border-gray-200 dark:border-gray-700">
-                    <h3 className="font-bold text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2"><Upload size={18}/> Toplu Yükleme (JSON)</h3>
-                    <textarea className="w-full h-24 border p-2 rounded text-xs font-mono bg-gray-50 dark:bg-gray-900 dark:border-gray-600 dark:text-white" placeholder='[{"title": "Konser", "lat": 41.123, ...}]' value={bulkData} onChange={(e) => setBulkData(e.target.value)}></textarea>
-                    <button onClick={handleBulkUpload} className="mt-2 bg-blue-600 text-white px-4 py-2 rounded text-sm font-bold">Yükle</button>
-                </div>
             </div>
         )}
 
-        {/* --- SEKME 2: BAŞVURULAR --- */}
         {activeTab === 'applications' && (
             <div className="space-y-4 animate-in fade-in">
                 <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700">
-                    <h2 className="text-2xl font-black text-gray-900 dark:text-white mb-6 flex items-center gap-2">
-                        <Inbox size={28} className="text-brand"/> MEKAN BAŞVURULARI
-                    </h2>
-                    
-                    {applications.length === 0 && (
-                        <div className="text-center py-12 text-gray-400 italic">Henüz başvuru yok.</div>
-                    )}
-
+                    <h2 className="text-2xl font-black text-gray-900 dark:text-white mb-6 flex items-center gap-2"><Inbox size={28} className="text-brand"/> MEKAN BAŞVURULARI</h2>
+                    {applications.length === 0 && <div className="text-center py-12 text-gray-400 italic">Henüz başvuru yok.</div>}
                     <div className="grid gap-4">
                         {applications.map((app) => (
                             <div key={app.id} className="p-6 bg-gray-50 dark:bg-gray-700/50 rounded-xl border border-gray-200 dark:border-gray-600 relative hover:shadow-md transition">
                                 <button onClick={() => handleDeleteApplication(app.id)} className="absolute top-4 right-4 text-gray-400 hover:text-red-500" title="Sil"><Trash2 size={18}/></button>
-                                
                                 <div className="flex flex-col md:flex-row gap-6">
                                     <div className="flex-1">
-                                        <div className="text-xs font-bold text-brand uppercase mb-1">Mekan Adı</div>
-                                        <div className="text-lg font-bold text-gray-900 dark:text-white mb-4">{app.venue_name}</div>
-                                        
-                                        <div className="text-xs font-bold text-brand uppercase mb-1">Mesaj</div>
-                                        <p className="text-sm text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-800 p-3 rounded-lg border border-gray-200 dark:border-gray-600">{app.message || 'Mesaj yok.'}</p>
+                                        <div className="text-xs font-bold text-brand uppercase mb-1">Mekan Adı</div><div className="text-lg font-bold text-gray-900 dark:text-white mb-4">{app.venue_name}</div>
+                                        <div className="text-xs font-bold text-brand uppercase mb-1">Mesaj</div><p className="text-sm text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-800 p-3 rounded-lg border border-gray-200 dark:border-gray-600">{app.message || 'Mesaj yok.'}</p>
                                     </div>
-                                    
                                     <div className="w-full md:w-1/3 space-y-3 border-l border-gray-200 dark:border-gray-600 pl-0 md:pl-6 pt-4 md:pt-0">
-                                        <div>
-                                            <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-xs font-bold mb-1"><User size={12}/> Yetkili</div>
-                                            <div className="text-sm font-medium">{app.contact_name}</div>
-                                        </div>
-                                        <div>
-                                            <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-xs font-bold mb-1"><Phone size={12}/> Telefon</div>
-                                            <div className="text-sm font-medium"><a href={`tel:${app.phone}`} className="hover:text-brand hover:underline">{app.phone}</a></div>
-                                        </div>
-                                        <div>
-                                            <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-xs font-bold mb-1"><Mail size={12}/> E-mail</div>
-                                            <div className="text-sm font-medium"><a href={`mailto:${app.email}`} className="hover:text-brand hover:underline">{app.email}</a></div>
-                                        </div>
-                                        <div className="text-[10px] text-gray-400 mt-4 pt-4 border-t dark:border-gray-600">
-                                            Başvuru Tarihi: {new Date(app.created_at).toLocaleString('tr-TR')}
-                                        </div>
+                                        <div><div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-xs font-bold mb-1"><User size={12}/> Yetkili</div><div className="text-sm font-medium">{app.contact_name}</div></div>
+                                        <div><div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-xs font-bold mb-1"><Phone size={12}/> Telefon</div><div className="text-sm font-medium"><a href={`tel:${app.phone}`} className="hover:text-brand hover:underline">{app.phone}</a></div></div>
+                                        <div><div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-xs font-bold mb-1"><Mail size={12}/> E-mail</div><div className="text-sm font-medium"><a href={`mailto:${app.email}`} className="hover:text-brand hover:underline">{app.email}</a></div></div>
+                                        <div className="text-[10px] text-gray-400 mt-4 pt-4 border-t dark:border-gray-600">Başvuru Tarihi: {new Date(app.created_at).toLocaleString('tr-TR')}</div>
                                     </div>
                                 </div>
                             </div>
@@ -319,7 +354,6 @@ export default function Admin() {
                 </div>
             </div>
         )}
-
       </div>
     </div>
   )
