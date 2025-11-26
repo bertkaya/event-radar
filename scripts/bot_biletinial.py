@@ -137,3 +137,4 @@ def scrape_biletinial():
 
 if __name__ == "__main__":
     scrape_biletinial()
+    # GitHub Sync Testi v1
