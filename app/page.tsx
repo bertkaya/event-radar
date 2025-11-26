@@ -4,8 +4,9 @@
 import { useState, useEffect } from 'react'
 import dynamic from 'next/dynamic'
 import { supabase } from '@/lib/supabase'
-import { MapPin, Calendar, Navigation, Filter, Star, LogOut, Heart, Share2, Ticket, Map, Ban, X, Clock, CheckCircle, ChevronDown, Globe, ArrowUpDown, Banknote, CalendarPlus, Music, Send, Store, Mail } from 'lucide-react'
+import { MapPin, Calendar, Navigation, Filter, Star, LogOut, Heart, Share2, Ticket, Map, Ban, X, Clock, CheckCircle, ChevronDown, Globe, ArrowUpDown, Banknote, CalendarPlus, Music, Send, Store, Mail, Utensils, Sparkles } from 'lucide-react'
 import Link from 'next/link'
+import SkeletonCard from '@/components/Skeleton'
 
 const MapWithNoSSR = dynamic(() => import('@/components/Map'), { 
   ssr: false,
@@ -21,34 +22,44 @@ const PRESET_LOCATIONS = [
   { name: 'İzmir', lat: 38.4237, lng: 27.1428, zoom: 12 },
 ]
 
+// MOOD MANTIĞI (Hangi mod hangi kategorileri kapsar?)
+const MOODS: {[key: string]: string[]} = {
+    'Kopmalık 🎸': ['Müzik', 'Spor'],
+    'Chill & Sanat 🎨': ['Tiyatro', 'Sanat', 'Sinema'],
+    'Date Night 🍷': ['Yeme-İçme', 'Müzik', 'Tiyatro'],
+    'Ailece 👨‍👩‍👧‍👦': ['Çocuk', 'Workshop', 'Sinema'],
+    'Kendini Geliştir 🧠': ['Workshop', 'Sanat']
+}
+
 export default function Home() {
   const [events, setEvents] = useState<any[]>([])
   const [allEvents, setAllEvents] = useState<any[]>([])
+  const [loading, setLoading] = useState(true) // Yükleniyor durumu
   const [userPrefs, setUserPrefs] = useState<string[]>([])
   const [favorites, setFavorites] = useState<number[]>([]) 
   const [favCounts, setFavCounts] = useState<{[key: number]: number}>({})
   const [selectedEvent, setSelectedEvent] = useState<any>(null)
   
   const [activeCategory, setActiveCategory] = useState<string>('Tümü')
-  const [timeFilter, setTimeFilter] = useState<'all' | 'today' | 'tomorrow' | 'weekend'>('all') // YENİ
+  const [activeMood, setActiveMood] = useState<string>('Tümü') // YENİ: Mood Filtresi
+  const [timeFilter, setTimeFilter] = useState<'all' | 'today' | 'tomorrow' | 'weekend'>('all')
   const [sortBy, setSortBy] = useState<'date-asc' | 'date-desc' | 'popular'>('date-asc')
   const [priceFilter, setPriceFilter] = useState<'all' | 'free'>('all')
   
   const [triggerLocate, setTriggerLocate] = useState(false)
   const [manualLocation, setManualLocation] = useState<any>(null)
   const [showLocModal, setShowLocModal] = useState(false)
-  const [showVenueModal, setShowVenueModal] = useState(false) // Mekan Başvuru Modal
+  const [showVenueModal, setShowVenueModal] = useState(false)
   const [currentLocName, setCurrentLocName] = useState('İstanbul')
   const [user, setUser] = useState<any>(null)
   const [copied, setCopied] = useState(false)
-
-  // Mekan Formu
   const [venueForm, setVenueForm] = useState({ venue_name: '', contact_name: '', phone: '', email: '', message: '' })
 
   useEffect(() => { fetchData() }, [])
-  useEffect(() => { applyFilters() }, [activeCategory, timeFilter, sortBy, priceFilter, allEvents, favCounts])
+  useEffect(() => { applyFilters() }, [activeCategory, activeMood, timeFilter, sortBy, priceFilter, allEvents, favCounts])
 
   const fetchData = async () => {
+    setLoading(true)
     const { data: { user } } = await supabase.auth.getUser()
     setUser(user)
 
@@ -75,6 +86,7 @@ export default function Home() {
       }))
       setAllEvents(jitteredEvents)
     }
+    setLoading(false)
   }
 
   const applyFilters = () => {
@@ -83,30 +95,26 @@ export default function Home() {
     // Kategori
     if (activeCategory !== 'Tümü') filtered = filtered.filter(e => e.category === activeCategory)
     
+    // Mood (Ruh Hali)
+    if (activeMood !== 'Tümü') {
+        const allowedCategories = MOODS[activeMood]
+        filtered = filtered.filter(e => allowedCategories.includes(e.category))
+    }
+
     // Fiyat
     if (priceFilter === 'free') filtered = filtered.filter(e => e.price?.toLowerCase().includes('ücretsiz') || e.price === '0' || e.price === '')
 
-    // 18-23 Zaman Filtresi (Bugün/Yarın/Haftasonu)
+    // 18-23 Zaman Filtresi
     if (timeFilter !== 'all') {
         const today = new Date();
         const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
-        
         filtered = filtered.filter(e => {
             const eventDate = new Date(e.start_time);
             const hour = eventDate.getHours();
-            
-            // Saat Kuralı: 18:00 - 23:00 (Sadece bu aralıkta başlayanlar)
             if (hour < 18) return false; 
-
-            if (timeFilter === 'today') {
-                return eventDate.toDateString() === today.toDateString();
-            } else if (timeFilter === 'tomorrow') {
-                return eventDate.toDateString() === tomorrow.toDateString();
-            } else if (timeFilter === 'weekend') {
-                const day = eventDate.getDay();
-                // Bugün Cuma ise hafta sonu sayabiliriz, ya da sadece Cmt-Paz
-                return day === 0 || day === 6 || (day === 5 && hour >= 18); 
-            }
+            if (timeFilter === 'today') return eventDate.toDateString() === today.toDateString();
+            if (timeFilter === 'tomorrow') return eventDate.toDateString() === tomorrow.toDateString();
+            if (timeFilter === 'weekend') { const day = eventDate.getDay(); return day === 0 || day === 6 || (day === 5 && hour >= 18); }
             return true;
         });
     }
@@ -115,10 +123,7 @@ export default function Home() {
     filtered.sort((a, b) => {
       if (sortBy === 'date-asc') return new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
       else if (sortBy === 'date-desc') return new Date(b.start_time).getTime() - new Date(a.start_time).getTime()
-      else if (sortBy === 'popular') {
-        const countA = favCounts[a.id] || 0; const countB = favCounts[b.id] || 0
-        return countB - countA
-      }
+      else if (sortBy === 'popular') { const countA = favCounts[a.id] || 0; const countB = favCounts[b.id] || 0; return countB - countA }
       return 0
     })
     setEvents(filtered)
@@ -127,7 +132,6 @@ export default function Home() {
   const toggleFavorite = async (e: any, eventId: number, category: string) => {
     e?.stopPropagation()
     if (!user) return alert('Favorilere eklemek için giriş yapmalısın!')
-
     if (favorites.includes(eventId)) {
       setFavorites(favorites.filter(id => id !== eventId))
       setFavCounts(prev => ({...prev, [eventId]: Math.max(0, (prev[eventId] || 1) - 1)}))
@@ -136,36 +140,34 @@ export default function Home() {
       setFavorites([...favorites, eventId])
       setFavCounts(prev => ({...prev, [eventId]: (prev[eventId] || 0) + 1}))
       await supabase.from('favorites').insert([{ user_id: user.id, event_id: eventId }])
-      
-      // ANALİTİK KAYDI (Anonim Veri)
       await supabase.from('analytics').insert([{ event_id: eventId, category: category, action_type: 'favorite' }])
     }
   }
 
   const handleShare = async (event: any) => {
-    const shareText = `🔥 Sana bunu paslıyorum!\n\n${event.title} @ ${event.venue_name}\n🗓️ ${formatEuroDateTime(event.start_time)}\n\nBirlikte gidelim mi? Link: https://event-radar.vercel.app`
+    const shareText = `🔥 ${event.title} @ ${event.venue_name}\n🗓️ ${formatEuroDateTime(event.start_time)}\n\nBirlikte gidelim mi? Link: https://event-radar.vercel.app`
     if (navigator.share) { try { await navigator.share({ title: event.title, text: shareText, url: 'https://event-radar.vercel.app' }) } catch (err) {} } 
     else { navigator.clipboard.writeText(shareText); setCopied(true); setTimeout(() => setCopied(false), 2000) }
-    
-    // Analitik
     await supabase.from('analytics').insert([{ event_id: event.id, category: event.category, action_type: 'share' }])
   }
 
-  // Google Takvime Ekleme Linki
   const addToCalendar = (event: any) => {
       const startTime = new Date(event.start_time).toISOString().replace(/-|:|\.\d\d\d/g, "");
-      const endTime = new Date(new Date(event.start_time).getTime() + 2 * 60 * 60 * 1000).toISOString().replace(/-|:|\.\d\d\d/g, ""); // 2 saat ekle
+      const endTime = new Date(new Date(event.start_time).getTime() + 2 * 60 * 60 * 1000).toISOString().replace(/-|:|\.\d\d\d/g, ""); 
       const googleUrl = `https://www.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(event.title)}&dates=${startTime}/${endTime}&details=${encodeURIComponent(event.description + "\n\n18-23 App ile keşfedildi.")}&location=${encodeURIComponent(event.venue_name + ", " + event.address)}&sf=true&output=xml`;
       window.open(googleUrl, '_blank');
-      
-      // Analitik
       supabase.from('analytics').insert([{ event_id: event.id, category: event.category, action_type: 'calendar' }])
+  }
+
+  const openNearbyRestaurants = (venue: string, lat: number, lng: number) => {
+      const url = `https://www.google.com/maps/search/restaurants/@${lat},${lng},16z/data=!3m1!4b1?q=restaurants+near+${encodeURIComponent(venue)}`;
+      window.open(url, '_blank');
   }
 
   const handleVenueSubmit = async (e: any) => {
       e.preventDefault();
       const { error } = await supabase.from('venue_applications').insert([venueForm]);
-      if (!error) { alert('Başvurunuz alındı! Sizinle iletişime geçeceğiz.'); setShowVenueModal(false); setVenueForm({venue_name:'', contact_name:'', phone:'', email:'', message:''}) }
+      if (!error) { alert('Başvurunuz alındı!'); setShowVenueModal(false); setVenueForm({venue_name:'', contact_name:'', phone:'', email:'', message:''}) }
       else { alert('Hata oluştu.') }
   }
 
@@ -179,26 +181,17 @@ export default function Home() {
   const categories = ['Tümü', ...Array.from(new Set(allEvents.map(e => e.category)))]
   const handleLocate = () => { setTriggerLocate(true); setCurrentLocName("Konumum"); setTimeout(() => setTriggerLocate(false), 1000) }
   const handleSelectLocation = (loc: any) => { setManualLocation(loc); setCurrentLocName(loc.name.replace('• ', '')); setShowLocModal(false) }
-  
-  const formatEuroDateTime = (dateStr: string) => {
-    const date = new Date(dateStr)
-    return `${date.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' })} ${date.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}`
-  }
-  
+  const formatEuroDateTime = (dateStr: string) => { const d = new Date(dateStr); return `${d.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' })} ${d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}` }
   const formatHumanDate = (dateStr: string) => {
-    const date = new Date(dateStr)
-    const today = new Date(); const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1)
-    if (date.toDateString() === today.toDateString()) return 'Bugün'
-    if (date.toDateString() === tomorrow.toDateString()) return 'Yarın'
+    const date = new Date(dateStr); const today = new Date(); const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1)
+    if (date.toDateString() === today.toDateString()) return 'Bugün'; if (date.toDateString() === tomorrow.toDateString()) return 'Yarın'
     return date.toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', weekday: 'long' })
   }
 
   return (
     <div className="flex flex-col h-screen w-full bg-white dark:bg-gray-900 text-black dark:text-gray-100 font-sans overflow-hidden transition-colors">
       
-      {/* --- MODALLAR --- */}
-      
-      {/* KONUM SEÇİM */}
+      {/* MODALS */}
       {showLocModal && (
         <div className="fixed inset-0 z-[2100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
           <div className="bg-white dark:bg-gray-800 w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden">
@@ -218,7 +211,6 @@ export default function Home() {
         </div>
       )}
 
-      {/* MEKAN BAŞVURU MODALI */}
       {showVenueModal && (
         <div className="fixed inset-0 z-[2100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
           <div className="bg-white dark:bg-gray-800 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden">
@@ -243,14 +235,12 @@ export default function Home() {
         </div>
       )}
 
-      {/* ETKİNLİK DETAY MODALI */}
       {selectedEvent && (
         <div className="fixed inset-0 z-[2000] flex items-center justify-center p-0 md:p-4">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setSelectedEvent(null)}></div>
           <div className="bg-white dark:bg-gray-800 w-full h-full md:h-auto md:max-h-[90vh] md:max-w-2xl md:rounded-3xl shadow-2xl relative flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">
             <button onClick={() => setSelectedEvent(null)} className="absolute top-4 right-4 z-30 bg-black/50 hover:bg-black text-white p-2 rounded-full backdrop-blur transition"><X size={24} /></button>
 
-            {/* MODAL GÖRSELİ */}
             <div className="h-64 md:h-72 bg-brand relative shrink-0 flex items-center justify-center overflow-hidden">
               {selectedEvent.image_url ? (
                 <img src={selectedEvent.image_url} className={`w-full h-full object-cover ${selectedEvent.sold_out ? 'grayscale' : ''}`} />
@@ -291,14 +281,18 @@ export default function Home() {
                 <h3 className="font-bold text-gray-900 dark:text-white mb-2">Etkinlik Hakkında</h3>
                 <p className="text-gray-600 dark:text-gray-400 leading-relaxed whitespace-pre-line">{selectedEvent.description || 'Açıklama bulunmuyor.'}</p>
                 
-                {/* MEDYA BUTONLARI (Spotify/Takvim) */}
-                <div className="flex gap-3 mt-4">
+                <div className="flex flex-wrap gap-3 mt-4">
+                    {/* YENİ: YEMEK YERİ BUL */}
+                    <button onClick={() => openNearbyRestaurants(selectedEvent.venue_name, selectedEvent.lat, selectedEvent.lng)} className="flex items-center gap-2 bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-100 px-4 py-2 rounded-xl font-bold text-sm hover:bg-orange-200 transition">
+                        <Utensils size={16}/> Yakında Ne Yenir?
+                    </button>
+                    
                     {selectedEvent.media_url && (
-                        <button onClick={() => window.open(selectedEvent.media_url, '_blank')} className="flex items-center gap-2 bg-green-500 text-white px-4 py-2 rounded-xl font-bold text-sm hover:bg-green-600 transition">
+                        <button onClick={() => window.open(selectedEvent.media_url, '_blank')} className="flex items-center gap-2 bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-100 px-4 py-2 rounded-xl font-bold text-sm hover:bg-green-200 transition">
                             <Music size={16}/> Dinle / İzle
                         </button>
                     )}
-                    <button onClick={() => addToCalendar(selectedEvent)} className="flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-xl font-bold text-sm hover:bg-blue-600 transition">
+                    <button onClick={() => addToCalendar(selectedEvent)} className="flex items-center gap-2 bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-100 px-4 py-2 rounded-xl font-bold text-sm hover:bg-blue-200 transition">
                         <CalendarPlus size={16}/> Takvime Ekle
                     </button>
                 </div>
@@ -349,33 +343,35 @@ export default function Home() {
 
         <div className="h-[60%] md:h-full md:w-[40%] bg-white dark:bg-gray-900 order-2 md:order-1 border-r border-gray-200 dark:border-gray-700 flex flex-col shadow-2xl relative z-20">
            <div className="p-4 border-b border-gray-100 dark:border-gray-700 bg-white dark:bg-gray-900 shrink-0 space-y-3">
-             <div className="flex justify-between items-center"><h1 className="text-2xl font-black tracking-tighter text-gray-900 dark:text-white">AKIŞ</h1><div className="text-[10px] font-bold text-gray-400">{events.length} Etkinlik</div></div>
+             <div className="flex justify-between items-center"><h1 className="text-2xl font-black tracking-tighter text-gray-900 dark:text-white">AKIŞ</h1><div className="text-[10px] font-bold text-gray-400">{loading ? '...' : events.length} Etkinlik</div></div>
              
-             {/* FİLTRELER */}
+             {/* MOOD VE DİĞER FİLTRELER */}
              <div className="flex gap-2 overflow-x-auto no-scrollbar">
-                {/* ZAMAN (18-23) */}
                 <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg p-1 shrink-0">
                     <button onClick={() => setTimeFilter('all')} className={`px-3 py-1 rounded-md text-xs font-bold ${timeFilter === 'all' ? 'bg-white dark:bg-gray-700 shadow-sm text-black dark:text-white' : 'text-gray-500'}`}>Tümü</button>
-                    <button onClick={() => setTimeFilter('today')} className={`px-3 py-1 rounded-md text-xs font-bold ${timeFilter === 'today' ? 'bg-white dark:bg-gray-700 shadow-sm text-brand' : 'text-gray-500'}`}>Bugün 18+</button>
-                    <button onClick={() => setTimeFilter('tomorrow')} className={`px-3 py-1 rounded-md text-xs font-bold ${timeFilter === 'tomorrow' ? 'bg-white dark:bg-gray-700 shadow-sm text-brand' : 'text-gray-500'}`}>Yarın 18+</button>
+                    <button onClick={() => setTimeFilter('today')} className={`px-3 py-1 rounded-md text-xs font-bold ${timeFilter === 'today' ? 'bg-white dark:bg-gray-700 shadow-sm text-brand' : 'text-gray-500'}`}>Bugün Akşam</button>
+                    <button onClick={() => setTimeFilter('tomorrow')} className={`px-3 py-1 rounded-md text-xs font-bold ${timeFilter === 'tomorrow' ? 'bg-white dark:bg-gray-700 shadow-sm text-brand' : 'text-gray-500'}`}>Yarın Akşam</button>
                     <button onClick={() => setTimeFilter('weekend')} className={`px-3 py-1 rounded-md text-xs font-bold ${timeFilter === 'weekend' ? 'bg-white dark:bg-gray-700 shadow-sm text-brand' : 'text-gray-500'}`}>Hafta Sonu</button>
                 </div>
 
+                <select value={activeMood} onChange={(e) => { setActiveMood(e.target.value); setActiveCategory('Tümü'); }} className="bg-gray-100 dark:bg-gray-800 dark:text-white text-xs font-bold p-2 rounded-lg border-none focus:ring-0 outline-none cursor-pointer shrink-0">
+                    <option value="Tümü">Mood (Ruh Hali)</option>
+                    {Object.keys(MOODS).map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+
                 <select value={activeCategory} onChange={(e) => setActiveCategory(e.target.value)} className="bg-gray-100 dark:bg-gray-800 dark:text-white text-xs font-bold p-2 rounded-lg border-none focus:ring-0 outline-none cursor-pointer shrink-0"><option value="Tümü">Kategori</option>{Array.from(new Set(allEvents.map(e => e.category))).map(c => <option key={c} value={c}>{c}</option>)}</select>
-                
-                <button onClick={() => setSortBy(sortBy === 'date-asc' ? 'date-desc' : (sortBy === 'date-desc' ? 'popular' : 'date-asc'))} className="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 dark:text-white text-xs font-bold px-3 py-2 rounded-lg whitespace-nowrap shrink-0"><ArrowUpDown size={14}/>{sortBy === 'date-asc' ? 'En Yakın' : (sortBy === 'date-desc' ? 'En Uzak' : 'Popüler')}</button>
              </div>
            </div>
 
            <div className="flex-1 overflow-y-auto p-4 space-y-6 bg-gray-50 dark:bg-black/20">
-             {events.length === 0 && <div className="text-center text-gray-400 mt-10 text-sm font-medium">Bu filtreye uygun etkinlik bulunamadı.</div>}
-             {events.map((event) => {
+             {loading && [1,2,3].map(i => <SkeletonCard key={i} />)}
+             {!loading && events.length === 0 && <div className="text-center text-gray-400 mt-10 text-sm font-medium">Bu filtreye uygun etkinlik bulunamadı.</div>}
+             {!loading && events.map((event) => {
                const isRecommended = userPrefs.includes(event.category);
                const isFav = favorites.includes(event.id);
                const isSoldOut = event.sold_out;
                return (
                 <div key={event.id} onClick={() => setSelectedEvent(event)} className={`group bg-white dark:bg-gray-800 rounded-3xl cursor-pointer transition-all border border-gray-100 dark:border-gray-700 relative overflow-hidden flex flex-row md:flex-col items-stretch md:items-stretch h-32 md:h-auto hover:shadow-lg hover:border-brand/30 ${!event.image_url ? 'h-auto' : ''}`}>
-                  
                   {event.image_url && (
                     <div className="w-32 h-full md:w-full md:h-40 bg-brand shrink-0 relative flex items-center justify-center overflow-hidden">
                       <img src={event.image_url} alt={event.title} className={`w-full h-full object-cover ${isSoldOut ? 'grayscale' : ''}`} />
@@ -383,7 +379,6 @@ export default function Home() {
                       <div className="absolute bottom-2 left-2 bg-black/60 backdrop-blur text-white text-[10px] font-bold px-2 py-0.5 rounded uppercase md:block hidden">{event.category}</div>
                     </div>
                   )}
-
                   <div className="p-3 md:p-4 flex-1 min-w-0 flex flex-col justify-between">
                     <div className="flex justify-between items-start mb-1">
                        {!event.image_url && <span className="text-[10px] font-bold uppercase text-gray-400 bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">{event.category}</span>}
@@ -403,12 +398,10 @@ export default function Home() {
                )
              })}
              
-             {/* FOOTER BUTONLARI */}
              <div className="flex justify-center gap-4 py-6 border-t dark:border-gray-700 mt-4">
                 <button onClick={() => setShowVenueModal(true)} className="text-xs font-bold text-gray-500 hover:text-brand flex items-center gap-1"><Store size={14}/> Mekanını Ekle</button>
                 <a href="mailto:iletisim@18-23.com" className="text-xs font-bold text-gray-500 hover:text-brand flex items-center gap-1"><Mail size={14}/> Bize Ulaşın</a>
              </div>
-             
              <div className="h-8"></div>
            </div>
         </div>
