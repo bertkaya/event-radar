@@ -1,0 +1,39 @@
+name: Gunluk Etkinlik Avcisi
+
+on:
+  schedule:
+    # Her sabah 06:00 UTC (Türkiye saatiyle 09:00)
+    - cron: '0 6 * * *'
+  workflow_dispatch: # Elle tetiklemek için buton ekler
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Depoyu Çek
+        uses: actions/checkout@v3
+
+      - name: Python Kur
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Chrome Kurulumu
+        uses: browser-actions/setup-chrome@v1
+
+      - name: Kutuphaneleri Yukle
+        run: |
+          pip install requests beautifulsoup4 supabase selenium webdriver-manager geopy
+
+      - name: Biletinial Botunu Calistir
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: python scripts/bot_biletinial.py
+
+      - name: Bubilet Botunu Calistir
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: python scripts/bot_selenium.py
