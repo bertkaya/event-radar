@@ -14,6 +14,9 @@ jobs:
       - name: Depoyu Çek
         uses: actions/checkout@v3
 
+      - name: Dosya Yapisini Listele (Hata Ayiklama)
+        run: ls -R
+
       - name: Python Kur
         uses: actions/setup-python@v4
         with:
@@ -31,9 +34,3 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: python scripts/bot_biletinial.py
-
-      - name: Bubilet Botunu Calistir
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-        run: python scripts/bot_selenium.py
