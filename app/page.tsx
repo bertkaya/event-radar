@@ -14,14 +14,14 @@ const MapWithNoSSR = dynamic(() => import('@/components/Map'), {
 })
 
 const PRESET_LOCATIONS = [
-  { name: 'İstanbul (Tümü)', lat: 41.0082, lng: 28.9784, zoom: 11 },
-  { name: '• Kadıköy / Moda', lat: 40.9819, lng: 29.0256, zoom: 14 },
-  { name: '• Beşiktaş / Ortaköy', lat: 41.0422, lng: 29.0060, zoom: 14 },
-  { name: '• Beyoğlu / Taksim', lat: 41.0369, lng: 28.9850, zoom: 14 },
-  { name: 'Ankara', lat: 39.9334, lng: 32.8597, zoom: 12 },
+  { name: 'Ankara (Tümü)', lat: 39.9208, lng: 32.8541, zoom: 12 },
+  { name: '• Çankaya / Tunalı', lat: 39.9032, lng: 32.8644, zoom: 14 },
+  { name: '• Bahçelievler', lat: 39.9215, lng: 32.8225, zoom: 15 },
+  { name: '• Kızılay', lat: 39.9208, lng: 32.8541, zoom: 15 },
+  { name: '• Ümitköy / Çayyolu', lat: 39.8914, lng: 32.7103, zoom: 13 },
+  { name: 'İstanbul', lat: 41.0082, lng: 28.9784, zoom: 11 },
   { name: 'İzmir', lat: 38.4237, lng: 27.1428, zoom: 12 },
 ]
-
 // MOOD MANTIĞI (Hangi mod hangi kategorileri kapsar?)
 const MOODS: {[key: string]: string[]} = {
     'Kopmalık 🎸': ['Müzik', 'Spor'],

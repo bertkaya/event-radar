@@ -69,7 +69,7 @@ export default function Map({ events, selectedEvent, triggerLocate, markerMode, 
   const [userPos, setUserPos] = useState<any>(null)
 
   return (
-    <MapContainer center={[41.0082, 28.9784]} zoom={12} style={{ height: '100%', width: '100%' }} zoomControl={false}>
+    <MapContainer center={[39.9208, 32.8541]} zoom={12} style={{ height: '100%', width: '100%' }} zoomControl={false}>
       <TileLayer
         url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
         attribution='&copy; OpenStreetMap &copy; CARTO'

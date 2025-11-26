@@ -4,7 +4,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
-import { LogOut, MapPin, Calendar, Heart, ArrowLeft, Settings, Star, X, Plus, History } from 'lucide-react'
+import { LogOut, MapPin, Calendar, Heart, ArrowLeft, Settings, Star, X, Plus, History, Music, Youtube, Link as LinkIcon, Save } from 'lucide-react'
 import Link from 'next/link'
 
 export default function Profile() {
@@ -12,6 +12,12 @@ export default function Profile() {
   const [profile, setProfile] = useState<any>(null)
   const [favorites, setFavorites] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  
+  // Yeni State'ler (Müzik)
+  const [playlistLink, setPlaylistLink] = useState('')
+  const [musicVibe, setMusicVibe] = useState('')
+  const [isSaving, setIsSaving] = useState(false)
+
   const router = useRouter()
 
   useEffect(() => { getProfileData() }, [])
@@ -23,6 +29,12 @@ export default function Profile() {
 
     const { data: profileData } = await supabase.from('profiles').select('*').eq('id', user.id).single()
     setProfile(profileData)
+    
+    // Varsa eski verileri doldur
+    if (profileData) {
+        setPlaylistLink(profileData.playlist_url || '')
+        setMusicVibe(profileData.music_vibe || '')
+    }
 
     const { data: favData } = await supabase.from('favorites').select('event_id, events (*)').eq('user_id', user.id)
     if (favData) {
@@ -34,8 +46,38 @@ export default function Profile() {
 
   const handleLogout = async () => { await supabase.auth.signOut(); router.push('/') }
 
+  const saveMusicProfile = async () => {
+    setIsSaving(true)
+    // 1. Link Kontrolü (Basit)
+    if (playlistLink && !playlistLink.includes('spotify') && !playlistLink.includes('youtube')) {
+        alert('Lütfen geçerli bir Spotify veya YouTube linki girin.')
+        setIsSaving(false)
+        return
+    }
+
+    // 2. Kaydet
+    await supabase.from('profiles').update({ 
+        playlist_url: playlistLink,
+        music_vibe: musicVibe
+    }).eq('id', user.id)
+
+    // 3. Profil state'ini güncelle
+    setProfile({ ...profile, playlist_url: playlistLink, music_vibe: musicVibe })
+    
+    // 4. Tercihlere de bu vibe'ı ekle (Algoritma için)
+    if (musicVibe && profile?.preferences && !profile.preferences.includes(musicVibe)) {
+        const newPrefs = [...profile.preferences, musicVibe]
+        await supabase.from('profiles').update({ preferences: newPrefs }).eq('id', user.id)
+        
+        // HATA VEREN SATIR DÜZELTİLDİ: (prev: any) eklendi
+        setProfile((prev: any) => ({ ...prev, preferences: newPrefs }))
+    }
+
+    alert('Müzik kimliğin güncellendi! Öneriler buna göre şekillenecek.')
+    setIsSaving(false)
+  }
+
   const removePreference = async (pref: string) => {
-    if (!profile) return
     const newPrefs = profile.preferences.filter((p: string) => p !== pref)
     setProfile({ ...profile, preferences: newPrefs })
     await supabase.from('profiles').update({ preferences: newPrefs }).eq('id', user.id)
@@ -48,7 +90,6 @@ export default function Profile() {
 
   if (loading) return <div className="h-screen flex items-center justify-center text-brand font-bold animate-pulse bg-white dark:bg-gray-900">Profil Yükleniyor...</div>
 
-  // Tarihe göre ayır
   const now = new Date()
   const upcomingEvents = favorites.filter(e => new Date(e.start_time) >= now)
   const pastEvents = favorites.filter(e => new Date(e.start_time) < now)
@@ -62,23 +103,81 @@ export default function Profile() {
       </div>
 
       <div className="max-w-3xl mx-auto p-4 space-y-6">
+        
+        {/* KULLANICI KARTI */}
         <div className="bg-white dark:bg-gray-800 p-6 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700 flex flex-col md:flex-row items-center gap-6">
           <div className="w-24 h-24 bg-gradient-to-br from-brand to-red-900 text-white rounded-full flex items-center justify-center text-4xl font-black shadow-lg border-4 border-white dark:border-gray-700">{user.email[0].toUpperCase()}</div>
           <div className="text-center md:text-left flex-1">
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{user.email.split('@')[0]}</h2>
             <p className="text-sm text-gray-400 font-medium mb-4">{user.email}</p>
-            <div className="flex gap-3 justify-center md:justify-start">
-                <div className="bg-gray-50 dark:bg-gray-700 px-4 py-2 rounded-xl border border-gray-100 dark:border-gray-600 flex flex-col items-center md:items-start"><span className="text-[10px] font-bold text-gray-400 uppercase">Favoriler</span><span className="text-xl font-black text-brand">{favorites.length}</span></div>
-                <div className="bg-gray-50 dark:bg-gray-700 px-4 py-2 rounded-xl border border-gray-100 dark:border-gray-600 flex flex-col items-center md:items-start"><span className="text-[10px] font-bold text-gray-400 uppercase">İlgi Alanı</span><span className="text-xl font-black text-brand">{profile?.preferences?.length || 0}</span></div>
-            </div>
+            
+            {/* Müzik Rozeti */}
+            {profile?.music_vibe && (
+                <div className="inline-flex items-center gap-2 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-3 py-1 rounded-full text-xs font-bold mb-2">
+                    <Music size={14}/> {profile.music_vibe} Sever
+                </div>
+            )}
           </div>
         </div>
 
+        {/* --- MÜZİK KİMLİĞİ --- */}
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700 relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-4 opacity-10"><Music size={100} className="text-brand"/></div>
+            
+            <h3 className="font-bold text-gray-800 dark:text-white mb-4 flex items-center gap-2 relative z-10">
+                <LinkIcon size={18}/> Müzik Kimliği & Öneriler
+            </h3>
+            
+            <div className="space-y-4 relative z-10">
+                <div>
+                    <label className="text-xs font-bold text-gray-400 uppercase mb-1 block">Spotify / YouTube Playlist Linkin</label>
+                    <div className="flex gap-2">
+                        <div className="relative flex-1">
+                            <div className="absolute left-3 top-3 text-gray-400"><LinkIcon size={16}/></div>
+                            <input 
+                                value={playlistLink}
+                                onChange={(e) => setPlaylistLink(e.target.value)}
+                                placeholder="https://open.spotify.com/playlist/..." 
+                                className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-xl py-2.5 pl-9 pr-3 text-sm focus:ring-2 focus:ring-brand outline-none"
+                            />
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <label className="text-xs font-bold text-gray-400 uppercase mb-2 block">Bu listenin havası (Vibe) ne?</label>
+                    <div className="flex gap-2 flex-wrap">
+                        {['Rock', 'Jazz', 'Pop', 'Rap', 'Elektronik', 'Indie', 'Arabesk'].map(genre => (
+                            <button 
+                                key={genre}
+                                onClick={() => setMusicVibe(genre)}
+                                className={`px-4 py-2 rounded-lg text-xs font-bold border transition ${musicVibe === genre ? 'bg-brand text-white border-brand' : 'bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-brand'}`}
+                            >
+                                {genre}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
+                <button 
+                    onClick={saveMusicProfile} 
+                    disabled={isSaving}
+                    className="w-full bg-black dark:bg-white dark:text-black text-white py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:opacity-80 transition"
+                >
+                    {isSaving ? 'Analiz Ediliyor...' : <><Save size={16}/> Müzik Zevkini Kaydet</>}
+                </button>
+                
+                <p className="text-[10px] text-gray-400 text-center">
+                    *Linkini paylaştığında algoritmamız sana bu tarzdaki etkinlikleri (Örn: {musicVibe || '...'}) öncelikli gösterecek.
+                </p>
+            </div>
+        </div>
+
+        {/* İLGİ ALANLARI */}
         <div className="bg-white dark:bg-gray-800 p-6 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700">
-          <div className="flex justify-between items-center mb-4"><h3 className="font-bold text-gray-800 dark:text-white flex items-center gap-2"><Settings size={18}/> İlgi Alanlarım</h3><Link href="/onboarding" className="flex items-center gap-1 text-xs font-bold bg-black dark:bg-white dark:text-black text-white px-3 py-1.5 rounded-lg hover:bg-gray-800 transition"><Plus size={12}/> Düzenle / Ekle</Link></div>
+          <div className="flex justify-between items-center mb-4"><h3 className="font-bold text-gray-800 dark:text-white flex items-center gap-2"><Settings size={18}/> İlgi Alanlarım</h3><Link href="/onboarding" className="flex items-center gap-1 text-xs font-bold bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-3 py-1.5 rounded-lg hover:bg-gray-200 transition"><Plus size={12}/> Ekle</Link></div>
           <div className="flex flex-wrap gap-2">
             {profile?.preferences?.map((pref: string) => (<span key={pref} className="group bg-gray-100 dark:bg-gray-700 hover:bg-brand/10 text-gray-700 dark:text-gray-300 hover:text-brand px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 transition">{pref}<button onClick={() => removePreference(pref)} className="text-gray-400 hover:text-red-500"><X size={14}/></button></span>))}
-            {(!profile?.preferences || profile.preferences.length === 0) && <span className="text-sm text-gray-400 italic">Henüz ilgi alanı seçmedin. Yukarıdan ekleyebilirsin.</span>}
           </div>
         </div>
 
