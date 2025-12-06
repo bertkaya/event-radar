@@ -65,7 +65,7 @@ async function fetchLavarlaEvents() {
 
                 // Fix Date Format: 2025-9-23T11:00+3:00 -> 2025-09-23T11:00:00+03:00
                 // Also pad single digit month/day
-                const normalizeDate = (d: string) => {
+                const normalizeDate = (d: string | undefined) => {
                     if (!d) return null;
                     // Fix timezone +3:00 -> +03:00
                     let fixed = d.replace(/\+(\d):/, '+0$1:');
