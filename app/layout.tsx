@@ -7,6 +7,14 @@ const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
 export const metadata: Metadata = {
   title: '18-23 | Etkinlik Rehberi',
   description: 'Mesai sonrası etkinlikler',
+  manifest: '/manifest.json', // <--- EKLENDİ
+  themeColor: '#800020',      // <--- EKLENDİ
+  viewport: {                 // <--- EKLENDİ (Mobilde zoom engelleme vb.)
+    width: 'device-width',
+    initialScale: 1,
+    maximumScale: 1,
+    userScalable: false,
+  }
 }
 
 export default function RootLayout({

@@ -4,7 +4,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
-import { Check, Music, Coffee, Mic, Palette, Trophy, Camera } from 'lucide-react'
+import { Check, Music, Coffee, Mic, Palette, Trophy, Camera, PenTool, Baby } from 'lucide-react'
 
 const CATEGORIES = [
   { id: 'Müzik', icon: <Music size={24}/>, label: 'Müzik & Konser' },
@@ -13,6 +13,8 @@ const CATEGORIES = [
   { id: 'Yeme-İçme', icon: <Coffee size={24}/>, label: 'Gastronomi' },
   { id: 'Spor', icon: <Trophy size={24}/>, label: 'Spor' },
   { id: 'Sinema', icon: <Camera size={24}/>, label: 'Sinema' },
+  { id: 'Workshop', icon: <PenTool size={24}/>, label: 'Workshop & Atölye' }, // YENİ
+  { id: 'Çocuk', icon: <Baby size={24}/>, label: 'Çocuk & Aile' },           // YENİ
 ]
 
 export default function Onboarding() {
