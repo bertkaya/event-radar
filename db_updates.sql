@@ -39,6 +39,7 @@ ADD COLUMN IF NOT EXISTS venue_id BIGINT REFERENCES venues(id),
 ADD COLUMN IF NOT EXISTS organizer_id BIGINT REFERENCES organizers(id),
 ADD COLUMN IF NOT EXISTS rules TEXT, -- Good to know info
 ADD COLUMN IF NOT EXISTS source_url TEXT, -- For scraping reference
+ADD COLUMN IF NOT EXISTS ticket_details JSONB, -- Array of ticket options {name, price, status}
 ADD COLUMN IF NOT EXISTS tags TEXT[]; -- Array of tag names or IDs
 
 -- Create index on venue_id

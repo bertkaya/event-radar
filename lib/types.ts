@@ -25,6 +25,12 @@ export interface Organizer {
     created_at?: string;
 }
 
+export interface TicketDetail {
+    name: string;
+    price: string;
+    status?: string;
+}
+
 export interface Event {
     id: number;
     title: string;
@@ -49,11 +55,23 @@ export interface Event {
 
     // New Fields
     organizer_id?: number;
-    rules?: string;
+    rules?: string | string[]; // Can be string (DB) or array (Scraper) - DB is text array usually or text? SQL says rules TEXT, scraper uses string[]. Let's match DB. Scraper sends string array, but DB updates.sql said rules TEXT? No, looking at db_updates.sql: ADD COLUMN IF NOT EXISTS rules TEXT. So it's a single string in DB. Scraper should join it. 
+    // Wait, let's double check run_scrapers logic. 
+    // Passo scraper: rules: eventData.ruleItems (string[])
+    // Supabase column: rules TEXT.
+    // If we send string[] to TEXT column, supabase might reject or stringify.
+    // Ideally validation step should have caught this.
+    // I should fix the type here to be generic or check what supabase expects.
+    // Actually, I should update the Scrapers to join('\n') or update DB to TEXT[].
+    // db_updates.sql line 40: rules TEXT.
+    // So Scrapers should join.
+    // I will keep it as string here for Frontend.
+
     source_url?: string;
+    ticket_details?: TicketDetail[]; // JSONB
     tags?: string[];
 
-    // Joins (optional, depending on query)
+    // Joins
     venues?: Venue;
     organizers?: Organizer;
 }

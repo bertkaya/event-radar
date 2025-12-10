@@ -425,6 +425,23 @@ END:VCALENDAR`;
                   </div>
                 )}
 
+                {selectedEvent.ticket_details && selectedEvent.ticket_details.length > 0 && (
+                  <div className="bg-gray-50 dark:bg-gray-900 p-4 rounded-xl border border-gray-100 dark:border-gray-700">
+                    <h3 className="font-bold text-gray-900 dark:text-gray-100 mb-3 flex items-center gap-2"><Ticket size={16} /> Bilet Seçenekleri</h3>
+                    <div className="space-y-2">
+                      {selectedEvent.ticket_details.map((t: any, idx: number) => (
+                        <div key={idx} className="flex justify-between items-center p-3 bg-white dark:bg-gray-800 rounded-lg shadow-sm">
+                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t.name}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-black text-brand">{t.price}</span>
+                            {t.status && <span className="text-[10px] uppercase font-bold text-gray-400 bg-gray-100 dark:bg-gray-700 px-1.5 rounded">{t.status}</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex flex-wrap gap-2 mt-4">
                   <button onClick={() => openNearbyRestaurants(selectedEvent.venue_name, selectedEvent.lat, selectedEvent.lng)} className="flex items-center gap-2 bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-100 px-3 py-2 rounded-lg font-bold text-xs hover:bg-orange-200 transition">
                     <Utensils size={14} /> Yemek

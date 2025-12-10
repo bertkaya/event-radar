@@ -46,7 +46,8 @@ export default function Admin() {
     rules: '', // Good to know
     tags: '', // Comma separated
     organizer_id: '',
-    is_single_day: true // Default true
+    is_single_day: true, // Default true
+    ticket_details: [] as any[] // Store JSONB
   })
 
   // Filter state
@@ -162,7 +163,8 @@ export default function Admin() {
       rules: event.rules || '',
       tags: event.tags ? event.tags.join(', ') : '',
       organizer_id: event.organizer_id?.toString() || '',
-      is_single_day: !event.end_time || (new Date(event.start_time).toDateString() === new Date(event.end_time).toDateString())
+      is_single_day: !event.end_time || (new Date(event.start_time).toDateString() === new Date(event.end_time).toDateString()),
+      ticket_details: event.ticket_details || []
     })
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -173,7 +175,7 @@ export default function Admin() {
       title: '', venue_mode: 'existing', venue_id: '', venue_name: '', address: '', category: 'Müzik', price: '',
       date: '', time: '', end_date: '', end_time: '', lat: '', lng: '',
       description: '', maps_url: '', image_url: '', ticket_url: '', media_url: '', sold_out: false,
-      rules: '', tags: '', organizer_id: '', is_single_day: true
+      rules: '', tags: '', organizer_id: '', is_single_day: true, ticket_details: []
     })
   }
 
@@ -259,6 +261,7 @@ export default function Admin() {
         image_url: formData.image_url, ticket_url: formData.ticket_url, maps_url: formData.maps_url, media_url: formData.media_url,
         sold_out: formData.sold_out, is_approved: true,
         rules: formData.rules,
+        ticket_details: formData.ticket_details, // Preserve/Update ticket details
         tags: formData.tags ? formData.tags.split(',').map(t => t.trim()) : [],
         organizer_id: formData.organizer_id ? parseInt(formData.organizer_id) : null
       }
