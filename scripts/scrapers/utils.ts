@@ -54,7 +54,7 @@ export async function getBrowser(): Promise<Browser> {
     if (browserInstance) return browserInstance;
 
     browserInstance = await puppeteer.launch({
-        headless: true, // Set to false to see the browser for debugging
+        headless: false, // Set to false to see the browser for debugging and bypass simple bot detection
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
