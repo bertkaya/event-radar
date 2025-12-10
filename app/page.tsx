@@ -31,6 +31,23 @@ const MOODS: { [key: string]: string[] } = {
   'Kendini Geliştir 🧠': ['Workshop', 'Sanat']
 }
 
+function getDistanceFromLatLonInKm(lat1: number, lon1: number, lat2: number, lon2: number) {
+  var R = 6371; // Radius of the earth in km
+  var dLat = deg2rad(lat2 - lat1);  // deg2rad below
+  var dLon = deg2rad(lon2 - lon1);
+  var a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2)
+    ;
+  var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  var d = R * c; // Distance in km
+  return d;
+}
+function deg2rad(deg: number) {
+  return deg * (Math.PI / 180)
+}
+
 export default function Home() {
   const [events, setEvents] = useState<any[]>([])
   const [allEvents, setAllEvents] = useState<any[]>([])
@@ -45,6 +62,7 @@ export default function Home() {
   const [timeFilter, setTimeFilter] = useState<'all' | 'today' | 'tomorrow' | 'weekend'>('all')
   const [sortBy, setSortBy] = useState<'date-asc' | 'date-desc' | 'popular'>('date-asc')
   const [priceFilter, setPriceFilter] = useState<'all' | 'free'>('all')
+  const [cityFilter, setCityFilter] = useState<{ lat: number, lng: number } | null>(null) // City Filter (Center)
 
   const [triggerLocate, setTriggerLocate] = useState(false)
   const [manualLocation, setManualLocation] = useState<any>(null)
@@ -58,7 +76,8 @@ export default function Home() {
   const [venueForm, setVenueForm] = useState({ venue_name: '', contact_name: '', phone: '', email: '', message: '' })
 
   useEffect(() => { fetchData() }, [])
-  useEffect(() => { applyFilters() }, [activeCategory, activeMood, timeFilter, sortBy, priceFilter, allEvents, favCounts])
+  useEffect(() => { fetchData() }, [])
+  useEffect(() => { applyFilters() }, [activeCategory, activeMood, timeFilter, sortBy, priceFilter, allEvents, favCounts, cityFilter])
 
   const fetchData = async () => {
     setLoading(true)
@@ -105,6 +124,14 @@ export default function Home() {
 
     // Fiyat
     if (priceFilter === 'free') filtered = filtered.filter(e => e.price?.toLowerCase().includes('ücretsiz') || e.price === '0' || e.price === '')
+
+    // Şehir Filtresi (50km yarıçap)
+    if (cityFilter) {
+      filtered = filtered.filter(e => {
+        const dist = getDistanceFromLatLonInKm(cityFilter.lat, cityFilter.lng, e.lat, e.lng)
+        return dist < 50
+      })
+    }
 
     // 18-23 Zaman Filtresi
     if (timeFilter !== 'all') {
@@ -223,7 +250,25 @@ END:VCALENDAR`;
   const openTicket = (e: any, url: string) => { e?.stopPropagation(); window.open(url, '_blank') }
   const categories = ['Tümü', ...Array.from(new Set(allEvents.map(e => e.category)))]
   const handleLocate = () => { setTriggerLocate(true); setCurrentLocName("Konumum"); setTimeout(() => setTriggerLocate(false), 1000) }
-  const handleSelectLocation = (loc: any) => { setManualLocation(loc); setCurrentLocName(loc.name.replace('• ', '')); setShowLocModal(false) }
+  const handleSelectLocation = (loc: any) => {
+    setManualLocation(loc);
+    setCurrentLocName(loc.name.replace('• ', ''));
+    setShowLocModal(false);
+
+    // Eğer zoom seviyesi küçükse (Şehir geneli) o şehri filtre olarak ayarla
+    if (loc.zoom <= 12) {
+      setCityFilter({ lat: loc.lat, lng: loc.lng })
+    } else {
+      // Bir semt seçildiyse de o şehrin filtresini koruyabiliriz veya kaldırabiliriz. 
+      // Şimdilik Ankara semtleri için Ankara merkezini baz alalım.
+      if (loc.name.includes('Ankara') || loc.name.includes('Çankaya') || loc.name.includes('Bahçelievler') || loc.name.includes('Kızılay') || loc.name.includes('Ümitköy')) {
+        // Ankara Coordinates
+        setCityFilter({ lat: 39.9208, lng: 32.8541 })
+      } else {
+        setCityFilter(null)
+      }
+    }
+  }
 
   // DATE FORMATTERS
   const formatEuroDateTime = (dateStr: string) => { const d = new Date(dateStr); return `${d.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' })} ${d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}` }
@@ -443,7 +488,7 @@ END:VCALENDAR`;
 
       <div className="flex flex-1 flex-col md:flex-row overflow-hidden relative">
         <div className="h-[40%] md:h-full md:w-[60%] bg-gray-100 dark:bg-gray-900 relative order-1 md:order-2">
-          <MapWithNoSSR events={events} selectedEvent={selectedEvent} triggerLocate={triggerLocate} markerMode="title" manualLocation={manualLocation} />
+          <MapWithNoSSR events={events} selectedEvent={selectedEvent} triggerLocate={triggerLocate} markerMode="title" manualLocation={manualLocation} onEventSelect={setSelectedEvent} />
           <button onClick={handleLocate} className="absolute top-4 right-4 z-[1000] bg-white dark:bg-gray-800 p-3 rounded-xl shadow-lg hover:bg-brand hover:text-white transition text-gray-700 dark:text-white border border-gray-200 dark:border-gray-700"><Navigation size={20} /></button>
           <div className="md:hidden absolute top-4 left-4 right-16 z-[900] overflow-x-auto no-scrollbar">
             <div className="flex gap-2">

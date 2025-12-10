@@ -1,25 +1,17 @@
 
+import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import * as cheerio from 'cheerio';
-import dotenv from 'dotenv';
-dotenv.config();
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
-if (!supabaseUrl || !supabaseKey) {
-    console.warn('Supabase keys missing. Printing to console instead of DB.');
-}
-
-let supabase: any = null;
-if (supabaseUrl && supabaseKey) {
-    supabase = createClient(supabaseUrl, supabaseKey);
-} else {
-    console.warn('Supabase keys missing. Running in SIMULATION MODE.');
-}
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function fetchLavarlaEvents() {
-    console.log('Starting Lavarla scrape...');
+    console.log('Starting Lavarla scrape (API)...');
+    let count = 0;
+    const errors: string[] = [];
 
     try {
         // 1. Get Sitemap
@@ -36,20 +28,17 @@ async function fetchLavarlaEvents() {
             if (u !== 'https://lavarla.com/etkinlik/' && !u.includes('/page/')) urls.push(u);
         });
 
-        console.log(`Found ${urls.length} events in sitemap. Processing first 10 for safety...`);
+        // Limit for safety/performance in API
+        const limitedUrls = urls.slice(0, 10);
 
         // 2. Process URLs
-        for (const url of urls.slice(0, 10)) {
-            console.log(`Fetching '${url}'...`);
+        for (const url of limitedUrls) {
             try {
                 const pageRes = await fetch(url, {
                     headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36' }
                 });
 
-                if (!pageRes.ok) {
-                    console.log(`Failed to fetch ${url}: ${pageRes.status}`);
-                    continue;
-                }
+                if (!pageRes.ok) continue;
                 const html = await pageRes.text();
                 const $ = cheerio.load(html);
 
@@ -58,20 +47,12 @@ async function fetchLavarlaEvents() {
                 const startDateMeta = $('meta[itemprop="startDate"]').attr('content');
                 const endDateMeta = $('meta[itemprop="endDate"]').attr('content');
 
-                if (!title || !startDateMeta) {
-                    console.warn(`Skipping ${url} - Missing title or start date`);
-                    continue;
-                }
+                if (!title || !startDateMeta) continue;
 
-                // Fix Date Format: 2025-9-23T11:00+3:00 -> 2025-09-23T11:00:00+03:00
-                // Also pad single digit month/day
+                // Fix Date Format logic (Same as script)
                 const normalizeDate = (d: string | undefined) => {
                     if (!d) return null;
-                    // Fix timezone +3:00 -> +03:00
                     let fixed = d.replace(/\+(\d):/, '+0$1:');
-
-                    // Fix single digit month/day: 2025-9-5T -> 2025-09-05T
-                    // Split by T to handle date part
                     const parts = fixed.split('T');
                     if (parts.length > 0) {
                         const dateParts = parts[0].split('-');
@@ -94,26 +75,14 @@ async function fetchLavarlaEvents() {
                 try {
                     startTime = cleanStart ? new Date(cleanStart).toISOString() : null;
                     endTime = cleanEnd ? new Date(cleanEnd).toISOString() : null;
-                } catch (e) {
-                    console.warn(`Date parsing failed for ${url} (Meta: ${startDateMeta})`);
-                    continue;
-                }
+                } catch (e) { continue; }
 
-                if (!startTime) {
-                    console.warn(`Skipping ${url} - Invalid start time`);
-                    continue;
-                }
+                if (!startTime) continue;
 
-                // Venue
-                // Try .event_location_name (from dump) then .evo_location_name fallback
-                const venueName = $('.event_location_name').text().trim() || $('.evo_location_name').text().trim() || $('meta[name="og:site_name"]').attr('content');
+                const venueName = $('.event_location_name').text().trim() || $('.evo_location_name').text().trim() || $('meta[name="og:site_name"]').attr('content') || 'Bilinmiyor';
                 const address = $('.evo_location_address').text().trim();
-
-                // Description & Image
                 const description = $('.eventon_desc_in').text().trim() || $('meta[property="og:description"]').attr('content');
                 const imageUrl = $('meta[itemprop="image"]').attr('content') || $('.evocard_main_image').data('f');
-
-                // Category
                 const category = 'Etkinlik';
 
                 const eventData = {
@@ -127,7 +96,7 @@ async function fetchLavarlaEvents() {
                     source_url: url,
                     lat: 39.9334,
                     lng: 32.8597,
-                    is_approved: false,
+                    is_approved: false, // Default unapproved for API fetch
                     category: category,
                     price: ''
                 };
@@ -140,36 +109,22 @@ async function fetchLavarlaEvents() {
                     eventData.lng = parseFloat(parts[1]);
                 }
 
-                console.log(`Parsed: ${title} @ ${venueName} (${startTime})`);
+                // 3. Upsert
+                const { error } = await supabase.from('events').upsert(eventData, { onConflict: 'source_url' });
+                if (!error) count++;
+                else errors.push(error.message);
 
-                // 3. Upsert into Supabase
-                if (supabaseUrl && supabaseKey) {
-                    const { error } = await supabase
-                        .from('events')
-                        .upsert(eventData, { onConflict: 'source_url' });
-
-                    const { data: existing } = await supabase.from('events').select('id').eq('source_url', url).single();
-
-                    if (existing) {
-                        const { error: updateErr } = await supabase.from('events').update(eventData).eq('id', existing.id);
-                        if (updateErr) console.error('Update error:', updateErr);
-                        else console.log('Updated existing event.');
-                    } else {
-                        const { error: insertErr } = await supabase.from('events').insert(eventData);
-                        if (insertErr) console.error('Insert error:', insertErr);
-                        else console.log('Inserted new event.');
-                    }
-                } else {
-                    console.log('Skipping DB save (no credentials). Data prepared.');
-                }
-
-            } catch (e) {
-                console.error(`Error processing ${url}:`, e);
+            } catch (e: any) {
+                errors.push(`Error processing ${url}: ${e.message}`);
             }
         }
-    } catch (err) {
-        console.error('Fatal Error:', err);
+    } catch (err: any) {
+        errors.push('Fatal: ' + err.message);
     }
+    return { count, errors };
 }
 
-fetchLavarlaEvents();
+export async function POST() {
+    const result = await fetchLavarlaEvents();
+    return NextResponse.json({ success: true, count: result.count, errors: result.errors });
+}

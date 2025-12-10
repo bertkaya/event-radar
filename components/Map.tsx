@@ -62,10 +62,11 @@ interface MapProps {
   selectedEvent: any;
   triggerLocate: boolean;
   markerMode: 'title' | 'price' | 'category';
-  manualLocation: any; // Yeni prop
+  manualLocation: any;
+  onEventSelect: (event: any) => void;
 }
 
-export default function Map({ events, selectedEvent, triggerLocate, markerMode, manualLocation }: MapProps) {
+export default function Map({ events, selectedEvent, triggerLocate, markerMode, manualLocation, onEventSelect }: MapProps) {
   const [userPos, setUserPos] = useState<any>(null)
 
   return (
@@ -74,10 +75,10 @@ export default function Map({ events, selectedEvent, triggerLocate, markerMode, 
         url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
         attribution='&copy; OpenStreetMap &copy; CARTO'
       />
-      
-      <MapController 
-        selectedEvent={selectedEvent} 
-        triggerLocate={triggerLocate} 
+
+      <MapController
+        selectedEvent={selectedEvent}
+        triggerLocate={triggerLocate}
         manualLocation={manualLocation}
         onLocationFound={(pos: any) => setUserPos(pos)}
       />
@@ -92,10 +93,15 @@ export default function Map({ events, selectedEvent, triggerLocate, markerMode, 
         if (markerMode === 'category') text = event.category;
 
         return (
-          <Marker 
-            key={event.id} 
-            position={[event.lat, event.lng]} 
+          <Marker
+            key={event.id}
+            position={[event.lat, event.lng]}
             icon={createDynamicIcon(text, selectedEvent?.id === event.id)}
+            eventHandlers={{
+              click: () => {
+                onEventSelect(event) // This will update parent state -> selectedEvent changes -> MapController flies!
+              },
+            }}
           >
             <Popup className="custom-popup">
               <div className="text-center min-w-[150px]">

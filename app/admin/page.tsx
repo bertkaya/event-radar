@@ -45,8 +45,12 @@ export default function Admin() {
     // New Fields
     rules: '', // Good to know
     tags: '', // Comma separated
-    organizer_id: ''
+    organizer_id: '',
+    is_single_day: true // Default true
   })
+
+  // Filter state
+  const [showPendingOnly, setShowPendingOnly] = useState(false)
 
   useEffect(() => {
     fetchEvents()
@@ -57,6 +61,18 @@ export default function Admin() {
   const fetchEvents = async () => {
     const { data } = await supabase.from('events').select('*').order('is_approved', { ascending: true }).order('id', { ascending: false })
     if (data) setEvents(data)
+  }
+
+  const triggerAutoFetch = async () => {
+    if (pin !== '1823') return alert('PIN gerekli!')
+    setLoading(true); setMsg('İşleniyor...')
+    try {
+      const res = await fetch('/api/fetch-events', { method: 'POST' })
+      const json = await res.json()
+      if (json.success) { alert(`✅ Başarılı! ${json.count || 0} etkinlik eklendi/güncellendi.`); fetchEvents(); }
+      else alert('Hata: ' + json.error)
+    } catch (e: any) { alert('Hata: ' + e.message) }
+    finally { setLoading(false); setMsg('') }
   }
 
   const fetchApplications = async () => {
@@ -145,7 +161,8 @@ export default function Admin() {
       sold_out: event.sold_out || false,
       rules: event.rules || '',
       tags: event.tags ? event.tags.join(', ') : '',
-      organizer_id: event.organizer_id?.toString() || ''
+      organizer_id: event.organizer_id?.toString() || '',
+      is_single_day: !event.end_time || (new Date(event.start_time).toDateString() === new Date(event.end_time).toDateString())
     })
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -156,7 +173,7 @@ export default function Admin() {
       title: '', venue_mode: 'existing', venue_id: '', venue_name: '', address: '', category: 'Müzik', price: '',
       date: '', time: '', end_date: '', end_time: '', lat: '', lng: '',
       description: '', maps_url: '', image_url: '', ticket_url: '', media_url: '', sold_out: false,
-      rules: '', tags: '', organizer_id: ''
+      rules: '', tags: '', organizer_id: '', is_single_day: true
     })
   }
 
@@ -195,8 +212,17 @@ export default function Admin() {
     try {
       const startIso = new Date(`${formData.date}T${formData.time}`).toISOString()
       let endIso = null
-      if (formData.end_date && formData.end_time) {
+
+      if (!formData.is_single_day && formData.end_date && formData.end_time) {
         endIso = new Date(`${formData.end_date}T${formData.end_time}`).toISOString()
+      } else if (formData.is_single_day) {
+        // Tek günlükse bitiş saati opsiyonel, ama genelde 2-3 saat sonrası denilebilir veya null bırakılabilir.
+        // Kullanıcıdan bitiş saati almadıysak null. 
+        // Ama eğer TIME girildiyse (tek gün ama saat aralığı), o zaman aynı günün o saati.
+        // Şimdilik sadece Time inputu var mı UI'da? Evet, Tek Günlük olsa bile "Saat" var (Başlangıç).
+        // Bitiş saati inputunu gizleyeceğiz. O yüzden endIso null olabilir.
+        // Veya, aynı gün Bitiş Saati seçtirmek ister miyiz?
+        // Basitlik için: Tek Günlük -> End Time = Null (Database handle eder veya frontend gösterirken start+3 saat varsayar)
       }
 
       // 1. Handle Venue
@@ -269,6 +295,7 @@ export default function Admin() {
           <div className="bg-gray-200 dark:bg-gray-800 p-1 rounded-lg flex gap-1 w-full md:w-auto">
             <button onClick={() => setActiveTab('events')} className={`flex items-center gap-2 px-6 py-2 rounded-md text-sm font-bold transition flex-1 justify-center ${activeTab === 'events' ? 'bg-white dark:bg-gray-600 shadow-sm text-brand' : 'text-gray-500 hover:text-gray-700'}`}><List size={16} /> Etkinlikler</button>
             <button onClick={() => setActiveTab('applications')} className={`flex items-center gap-2 px-6 py-2 rounded-md text-sm font-bold transition flex-1 justify-center ${activeTab === 'applications' ? 'bg-white dark:bg-gray-600 shadow-sm text-brand' : 'text-gray-500 hover:text-gray-700'}`}><Inbox size={16} /> Başvurular {applications.length > 0 && <span className="bg-red-500 text-white text-[10px] px-1.5 rounded-full">{applications.length}</span>}</button>
+            <button onClick={triggerAutoFetch} className="bg-purple-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-purple-700 whitespace-nowrap">⚡ Otomatik Çek</button>
           </div>
         </div>
 
@@ -336,11 +363,19 @@ export default function Admin() {
                           <input type="date" name="date" value={formData.date} onChange={(e) => { handleChange(e); calculateEndDate(); }} required className="flex-1 border p-2 rounded dark:bg-gray-700 dark:border-gray-600" />
                           <input type="time" name="time" value={formData.time} onChange={handleChange} required className="w-24 border p-2 rounded dark:bg-gray-700 dark:border-gray-600" />
                         </div>
-                        <div className="flex gap-2 items-center">
-                          <span className="w-16 text-xs font-bold text-gray-500">BİTİŞ</span>
-                          <input type="date" name="end_date" value={formData.end_date} onChange={handleChange} className="flex-1 border p-2 rounded dark:bg-gray-700 dark:border-gray-600" />
-                          <input type="time" name="end_time" value={formData.end_time} onChange={handleChange} className="w-24 border p-2 rounded dark:bg-gray-700 dark:border-gray-600" />
+
+                        <div className="flex items-center gap-2">
+                          <input type="checkbox" checked={formData.is_single_day} onChange={(e) => setFormData({ ...formData, is_single_day: e.target.checked })} className="w-4 h-4" />
+                          <label className="text-xs font-bold text-gray-500">Tek Günlük Etkinlik</label>
                         </div>
+
+                        {!formData.is_single_day && (
+                          <div className="flex gap-2 items-center animate-in fade-in">
+                            <span className="w-16 text-xs font-bold text-gray-500">BİTİŞ</span>
+                            <input type="date" name="end_date" value={formData.end_date} onChange={handleChange} className="flex-1 border p-2 rounded dark:bg-gray-700 dark:border-gray-600" />
+                            <input type="time" name="end_time" value={formData.end_time} onChange={handleChange} className="w-24 border p-2 rounded dark:bg-gray-700 dark:border-gray-600" />
+                          </div>
+                        )}
                       </div>
 
                       <div className="space-y-2">
@@ -399,9 +434,14 @@ export default function Admin() {
             <div className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-gray-200 dark:border-gray-700">
               <div className="p-4 border-b dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-900/50">
                 <span className="font-bold text-gray-700 dark:text-gray-300">YÖNETİM LİSTESİ ({events.length})</span>
+                <div className="flex gap-2">
+                  <button onClick={() => setShowPendingOnly(!showPendingOnly)} className={`px-3 py-1 rounded-lg text-xs font-bold ${showPendingOnly ? 'bg-orange-500 text-white' : 'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300'}`}>
+                    {showPendingOnly ? 'Tümünü Göster' : 'Onay Bekleyenler'}
+                  </button>
+                </div>
               </div>
               <div className="divide-y dark:divide-gray-700">
-                {events.map(event => (
+                {events.filter(e => !showPendingOnly || !e.is_approved).map(event => (
                   <div key={event.id} className={`p-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition flex flex-col md:flex-row gap-4 items-start md:items-center justify-between ${!event.is_approved ? 'bg-red-50 dark:bg-red-900/20' : ''}`}>
                     <div className="flex gap-3 items-center">
                       <div className="w-12 h-12 bg-gray-200 dark:bg-gray-600 rounded-lg shrink-0 flex items-center justify-center overflow-hidden">
