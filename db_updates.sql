@@ -44,3 +44,56 @@ ADD COLUMN IF NOT EXISTS tags TEXT[]; -- Array of tag names or IDs
 
 -- Create index on venue_id
 CREATE INDEX IF NOT EXISTS idx_events_venue_id ON events(venue_id);
+
+-- Add min_price column for filtering
+ALTER TABLE events 
+ADD COLUMN IF NOT EXISTS min_price INTEGER;
+
+-- AI Enrichment Columns
+ALTER TABLE events 
+ADD COLUMN IF NOT EXISTS summary TEXT,
+ADD COLUMN IF NOT EXISTS ai_tags TEXT[],
+ADD COLUMN IF NOT EXISTS ai_mood TEXT,
+ADD COLUMN IF NOT EXISTS is_ai_processed BOOLEAN DEFAULT FALSE;
+-- Phase 3: Engagement
+CREATE TABLE IF NOT EXISTS follows (
+  user_id UUID REFERENCES auth.users(id),
+  entity_type TEXT, -- 'venue', 'organizer', 'category'
+  entity_id TEXT, -- For venue/organizer name or ID
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (user_id, entity_type, entity_id)
+);
+
+CREATE TABLE IF NOT EXISTS notifications (
+  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id),
+  title TEXT,
+  message TEXT,
+  link TEXT,
+  is_read BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Phase 3: Automatic Notifications Trigger
+CREATE OR REPLACE FUNCTION handle_new_event_notification() 
+RETURNS TRIGGER AS $$
+BEGIN
+  -- Notify users following the venue
+  INSERT INTO notifications (user_id, title, message, link)
+  SELECT 
+    f.user_id,
+    'Yeppuda! Yeni Etkinlik: ' || NEW.venue_name,
+    NEW.title || ' etkinliği eklendi! Biletler tükenmeden göz at.',
+    '/?event_id=' || NEW.id
+  FROM follows f
+  WHERE f.entity_type = 'venue' AND f.entity_id = NEW.venue_name;
+  
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS on_event_created ON events;
+CREATE TRIGGER on_event_created
+AFTER INSERT ON events
+FOR EACH ROW
+EXECUTE FUNCTION handle_new_event_notification();

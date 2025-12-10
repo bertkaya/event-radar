@@ -4,7 +4,7 @@
 import { useState, useEffect } from 'react'
 import dynamic from 'next/dynamic'
 import { supabase } from '@/lib/supabase'
-import { MapPin, Calendar, Navigation, Filter, Star, LogOut, Heart, Share2, Ticket, Map, Ban, X, Clock, CheckCircle, ChevronDown, Globe, ArrowUpDown, Banknote, CalendarPlus, Music, Send, Store, Mail, Utensils, Sparkles, Info, Instagram, Twitter, MessageCircle, Download, User } from 'lucide-react'
+import { MapPin, Calendar, Navigation, Filter, Star, LogOut, Heart, Share2, Ticket, Map, Ban, X, Clock, CheckCircle, ChevronDown, Globe, ArrowUpDown, Banknote, CalendarPlus, Music, Send, Store, Mail, Utensils, Sparkles, Info, Instagram, Twitter, MessageCircle, Download, User, Bell, Check, Plus } from 'lucide-react'
 import Link from 'next/link'
 import SkeletonCard from '@/components/Skeleton'
 
@@ -62,6 +62,7 @@ export default function Home() {
   const [timeFilter, setTimeFilter] = useState<'all' | 'today' | 'tomorrow' | 'weekend'>('all')
   const [sortBy, setSortBy] = useState<'date-asc' | 'date-desc' | 'popular'>('date-asc')
   const [priceFilter, setPriceFilter] = useState<'all' | 'free'>('all')
+  const [priceRange, setPriceRange] = useState<number[]>([0, 5000]) // [min, max]
   const [cityFilter, setCityFilter] = useState<{ lat: number, lng: number } | null>(null) // City Filter (Center)
 
   const [triggerLocate, setTriggerLocate] = useState(false)
@@ -75,29 +76,70 @@ export default function Home() {
   const [copied, setCopied] = useState(false)
   const [venueForm, setVenueForm] = useState({ venue_name: '', contact_name: '', phone: '', email: '', message: '' })
 
+  // Phase 3: User Engagement State
+  const [followedVenues, setFollowedVenues] = useState<string[]>([])
+  const [notifications, setNotifications] = useState<any[]>([])
+
+  const fetchUserData = async () => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (user) {
+      setUser(user)
+      // Preferences
+      const { data: profile } = await supabase.from('profiles').select('preferences').eq('id', user.id).single()
+      if (profile?.preferences) setUserPrefs(profile.preferences)
+
+      // Favorites
+      const { data: favs } = await supabase.from('favorites').select('event_id').eq('user_id', user.id)
+      if (favs) setFavorites(favs.map(f => f.event_id))
+
+      // Follows (Phase 3)
+      const { data: follows } = await supabase.from('follows').select('entity_id').eq('user_id', user.id).eq('entity_type', 'venue')
+      if (follows) setFollowedVenues(follows.map(f => f.entity_id))
+
+      // Notifications (Phase 3)
+      const { data: notifs } = await supabase.from('notifications').select('*').eq('user_id', user.id).eq('is_read', false).order('created_at', { ascending: false })
+      if (notifs) setNotifications(notifs)
+    }
+  }
+
+  const toggleFollow = async (venueName: string) => {
+    if (!user) {
+      alert('Lütfen giriş yapınız.');
+      return
+    }
+    const isFollowing = followedVenues.includes(venueName)
+    let newFollows = [...followedVenues]
+
+    if (isFollowing) {
+      newFollows = newFollows.filter(v => v !== venueName)
+      await supabase.from('follows').delete().match({ user_id: user.id, entity_type: 'venue', entity_id: venueName })
+    } else {
+      newFollows.push(venueName)
+      await supabase.from('follows').insert({ user_id: user.id, entity_type: 'venue', entity_id: venueName })
+    }
+    setFollowedVenues(newFollows)
+  }
+
   useEffect(() => { fetchData() }, [])
-  useEffect(() => { fetchData() }, [])
-  useEffect(() => { applyFilters() }, [activeCategory, activeMood, timeFilter, sortBy, priceFilter, allEvents, favCounts, cityFilter])
+  useEffect(() => { applyFilters() }, [activeCategory, activeMood, timeFilter, sortBy, priceFilter, allEvents, favCounts, cityFilter, priceRange])
 
   const fetchData = async () => {
     setLoading(true)
-    const { data: { user } } = await supabase.auth.getUser()
-    setUser(user)
-
-    let preferences: string[] = []
-    if (user) {
-      const { data: profile } = await supabase.from('profiles').select('preferences').eq('id', user.id).single()
-      if (profile?.preferences) { preferences = profile.preferences; setUserPrefs(preferences) }
-      const { data: favs } = await supabase.from('favorites').select('event_id').eq('user_id', user.id)
-      if (favs) setFavorites(favs.map(f => f.event_id))
-    }
+    await fetchUserData()
 
     const { data: allFavs } = await supabase.from('favorites').select('event_id')
     const counts: { [key: number]: number } = {}
     allFavs?.forEach((f: any) => { counts[f.event_id] = (counts[f.event_id] || 0) + 1 })
     setFavCounts(counts)
 
-    const { data: eventsData } = await supabase.from('events').select('*, organizers(name, logo_url)').eq('is_approved', true)
+    const { data: eventsData } = await supabase
+      .from('events')
+      .select('*, organizers(name, logo_url)')
+      .eq('is_approved', true)
+      .gte('start_time', new Date().toISOString())
+      // We do client-side filtering for price for now or simple GTE/LTE
+      // But query can filter too:
+      .order('start_time', { ascending: true });
 
     if (eventsData) {
       const jitteredEvents = eventsData.map(ev => ({
@@ -116,14 +158,32 @@ export default function Home() {
     // Kategori
     if (activeCategory !== 'Tümü') filtered = filtered.filter(e => e.category === activeCategory)
 
-    // Mood (Ruh Hali)
+    // Mood Filtresi
     if (activeMood !== 'Tümü') {
-      const allowedCategories = MOODS[activeMood]
-      filtered = filtered.filter(e => allowedCategories.includes(e.category))
+      // Phase 2: Use AI Mood if available
+      filtered = filtered.filter(e => {
+        if (e.ai_mood) return e.ai_mood === activeMood
+
+        // Fallback to legacy keyword matching
+        const keywords = MOODS[activeMood as keyof typeof MOODS] || []
+        const text = (e.title + ' ' + e.description + ' ' + e.category).toLowerCase()
+        return keywords.some(k => text.includes(k.toLowerCase()))
+      })
     }
 
     // Fiyat
     if (priceFilter === 'free') filtered = filtered.filter(e => e.price?.toLowerCase().includes('ücretsiz') || e.price === '0' || e.price === '')
+
+    // Min Price Range Filter
+    // Filter out events where min_price is known and exceeds the range max
+    // Keep events with null min_price (unless strictly filtering) or assume they are within range?
+    // Let's hide events that have a min_price > range.max
+    filtered = filtered.filter(e => {
+      if (e.min_price !== null && e.min_price !== undefined) {
+        return e.min_price <= priceRange[1];
+      }
+      return true; // Keep events with unknown prices for now, or filter them? Let's keep.
+    });
 
     // Şehir Filtresi (50km yarıçap)
     if (cityFilter) {
@@ -337,7 +397,7 @@ END:VCALENDAR`;
         </div>
       )}
 
-      {/* VENUE EVENTS MODAL (NEW) */}
+      {/* VENUE EVENTS MODAL */}
       {showVenueEventsModal && (
         <div className="fixed inset-0 z-[2200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
           <div className="bg-white dark:bg-gray-800 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden max-h-[80vh] flex flex-col">
@@ -362,69 +422,52 @@ END:VCALENDAR`;
       )}
 
       {selectedEvent && (
-        <div className="fixed inset-0 z-[2000] flex items-center justify-center p-0 md:p-4">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setSelectedEvent(null)}></div>
-          <div className="bg-white dark:bg-gray-800 w-full h-full md:h-auto md:max-h-[90vh] md:max-w-2xl md:rounded-3xl shadow-2xl relative flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">
+        <div className="fixed inset-0 z-[2000] flex items-end md:items-center justify-center pointer-events-none">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm pointer-events-auto transition-opacity" onClick={() => setSelectedEvent(null)}></div>
+          <div className="bg-white dark:bg-gray-900 w-full md:w-[500px] md:rounded-3xl rounded-t-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] pointer-events-auto animate-in slide-in-from-bottom-5 duration-300">
             <button onClick={() => setSelectedEvent(null)} className="absolute top-4 right-4 z-30 bg-black/50 hover:bg-black text-white p-2 rounded-full backdrop-blur transition"><X size={24} /></button>
 
             <div className="h-64 md:h-72 bg-brand relative shrink-0 flex items-center justify-center overflow-hidden">
               {selectedEvent.image_url ? (
                 <img src={selectedEvent.image_url} className={`w-full h-full object-cover ${selectedEvent.sold_out ? 'grayscale' : ''}`} />
               ) : (
-                <div className="text-white font-black text-5xl tracking-tighter opacity-50">18-23</div>
+                <div className="flex flex-col items-center justify-center w-full h-full p-8 gap-4 bg-brand">
+                  <div className="text-white font-black text-5xl tracking-tighter opacity-50">18-23</div>
+                  <div className="w-full h-[1px] bg-white/20"></div>
+                  <div className="flex items-center gap-3 text-white w-full">
+                    <div className="bg-white/10 p-2 rounded-lg text-white"><MapPin size={20} /></div>
+                    <div className="flex-1">
+                      <div className="text-xs font-bold text-white/60 uppercase flex items-center gap-2">
+                        Mekan
+                        <button onClick={(e) => { e.stopPropagation(); toggleFollow(selectedEvent.venue_name); }} className={`text-[10px] px-2 py-0.5 rounded-full font-bold transition flex items-center gap-1 ${followedVenues.includes(selectedEvent.venue_name) ? 'bg-white text-brand' : 'bg-white/10 hover:bg-white/20 text-white'}`}>
+                          {followedVenues.includes(selectedEvent.venue_name) ? <Check size={10} /> : <Plus size={10} />}
+                          {followedVenues.includes(selectedEvent.venue_name) ? 'Takip Ediliyor' : 'Takip Et'}
+                        </button>
+                      </div>
+                      <div className="font-bold text-lg text-white leading-tight">{selectedEvent.venue_name}</div>
+                      {selectedEvent.address && <div className="text-xs text-white/80 mt-1 leading-tight">{selectedEvent.address}</div>}
+                    </div>
+                    <button onClick={(e) => { e.stopPropagation(); setShowVenueEventsModal(selectedEvent.venue_name); }} className="text-xs bg-white/10 text-white px-2 py-1 rounded font-bold hover:bg-white/20">Diğer Etkinlikler</button>
+                  </div>
+                </div>
               )}
-              {selectedEvent.image_url && <div className="absolute bottom-0 inset-x-0 h-24 bg-gradient-to-t from-white dark:from-gray-800 to-transparent"></div>}
             </div>
 
-            <div className={`p-6 overflow-y-auto flex-1 ${!selectedEvent.image_url && 'pt-6'}`}>
-              <div className="flex justify-between items-start mb-2">
-                <h2 className="text-3xl font-black text-gray-900 dark:text-white leading-tight w-3/4">{selectedEvent.title}</h2>
-                {userPrefs.includes(selectedEvent.category) && !selectedEvent.sold_out && <div className="flex flex-col items-center"><Star size={24} className="fill-yellow-400 text-yellow-400" /><span className="text-[10px] font-bold text-gray-400">Önerilen</span></div>}
+            <div className="mb-8 space-y-6">
+              <div>
+                <h3 className="font-bold text-gray-900 dark:text-white mb-2">Etkinlik Hakkında</h3>
+                <p className="text-gray-600 dark:text-gray-400 leading-relaxed whitespace-pre-line">{selectedEvent.description || 'Açıklama bulunmuyor.'}</p>
               </div>
 
-              {selectedEvent.tags && selectedEvent.tags.length > 0 && (
-                <div className="flex gap-2 mb-4 flex-wrap">
-                  {selectedEvent.tags.map((tag: string) => <span key={tag} className="text-[10px] font-bold bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-2 py-1 rounded-full uppercase tracking-wider">{tag}</span>)}
+              {selectedEvent.rules && (
+                <div className="bg-yellow-50 dark:bg-yellow-900/10 p-4 rounded-xl border border-yellow-100 dark:border-yellow-900/20">
+                  <h3 className="font-bold text-yellow-800 dark:text-yellow-500 mb-2 flex items-center gap-2"><Info size={16} /> Good to Know / Kurallar</h3>
+                  <p className="text-sm text-yellow-900 dark:text-yellow-200/80 whitespace-pre-line">{selectedEvent.rules}</p>
                 </div>
               )}
 
-              {selectedEvent.organizers && (
-                <div className="flex items-center gap-2 mb-4 text-gray-500 dark:text-gray-400">
-                  <div className="bg-gray-100 dark:bg-gray-700 p-1 rounded-full"><User size={14} /></div>
-                  <span className="text-xs font-bold">{selectedEvent.organizers.name}</span>
-                </div>
-              )}
-
-              <div className="flex flex-col gap-3 mb-6 bg-gray-50 dark:bg-gray-900 p-4 rounded-xl border border-gray-100 dark:border-gray-700">
-                <div className="flex items-center gap-3 text-gray-700 dark:text-gray-300">
-                  <div className="bg-white dark:bg-gray-800 p-2 rounded-lg shadow-sm text-brand"><Calendar size={20} /></div>
-                  <div><div className="text-xs font-bold text-gray-400 uppercase">Tarih</div><div className="font-bold text-lg">{formatDateRange(selectedEvent.start_time, selectedEvent.end_time)}</div></div>
-                </div>
-                <div className="w-full h-[1px] bg-gray-200 dark:bg-gray-700"></div>
-                <div className="flex items-center gap-3 text-gray-700 dark:text-gray-300">
-                  <div className="bg-white dark:bg-gray-800 p-2 rounded-lg shadow-sm text-brand"><MapPin size={20} /></div>
-                  <div className="flex-1">
-                    <div className="text-xs font-bold text-gray-400 uppercase">Mekan</div>
-                    <div className="font-bold text-lg">{selectedEvent.venue_name}</div>
-                    {selectedEvent.address && <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 leading-tight">{selectedEvent.address}</div>}
-                  </div>
-                  <button onClick={() => setShowVenueEventsModal(selectedEvent.venue_name)} className="text-xs bg-brand/10 text-brand px-2 py-1 rounded font-bold hover:bg-brand/20">Diğer Etkinlikler</button>
-                </div>
-              </div>
-
-              <div className="mb-8 space-y-6">
-                <div>
-                  <h3 className="font-bold text-gray-900 dark:text-white mb-2">Etkinlik Hakkında</h3>
-                  <p className="text-gray-600 dark:text-gray-400 leading-relaxed whitespace-pre-line">{selectedEvent.description || 'Açıklama bulunmuyor.'}</p>
-                </div>
-
-                {selectedEvent.rules && (
-                  <div className="bg-yellow-50 dark:bg-yellow-900/10 p-4 rounded-xl border border-yellow-100 dark:border-yellow-900/20">
-                    <h3 className="font-bold text-yellow-800 dark:text-yellow-500 mb-2 flex items-center gap-2"><Info size={16} /> Good to Know / Kurallar</h3>
-                    <p className="text-sm text-yellow-900 dark:text-yellow-200/80 whitespace-pre-line">{selectedEvent.rules}</p>
-                  </div>
-                )}
-
+              {/* Price (Ücretsiz) Toggle */}
+              <div className="bg-white dark:bg-gray-800 rounded-xl p-2 border border-gray-100 dark:border-gray-700 shadow-sm mb-4">
                 {selectedEvent.ticket_details && selectedEvent.ticket_details.length > 0 && (
                   <div className="bg-gray-50 dark:bg-gray-900 p-4 rounded-xl border border-gray-100 dark:border-gray-700">
                     <h3 className="font-bold text-gray-900 dark:text-gray-100 mb-3 flex items-center gap-2"><Ticket size={16} /> Bilet Seçenekleri</h3>
@@ -494,6 +537,10 @@ END:VCALENDAR`;
         <div className="flex items-center gap-4">
           {user ? (
             <div className="flex items-center gap-3">
+              <button className="text-gray-500 hover:text-brand transition relative">
+                <Bell size={20} />
+                {notifications.length > 0 && <span className="absolute top-0 right-0 w-2 h-2 bg-red-500 rounded-full border border-white dark:border-gray-900"></span>}
+              </button>
               <Link href="/profile" className="text-right hidden md:block hover:opacity-70 transition cursor-pointer"><div className="text-xs font-bold text-gray-900 dark:text-white">{user.email.split('@')[0]}</div><div className="text-[10px] text-gray-500 dark:text-gray-400 flex justify-end gap-1"><span>{favorites.length} Favori</span></div></Link>
               <button onClick={async () => { await supabase.auth.signOut(); window.location.reload(); }} className="text-gray-400 hover:text-brand transition"><LogOut size={18} /></button>
             </div>
@@ -504,6 +551,7 @@ END:VCALENDAR`;
       </header>
 
       <div className="flex flex-1 flex-col md:flex-row overflow-hidden relative">
+        {/* MAP SECTION */}
         <div className="h-[40%] md:h-full md:w-[60%] bg-gray-100 dark:bg-gray-900 relative order-1 md:order-2">
           <MapWithNoSSR events={events} selectedEvent={selectedEvent} triggerLocate={triggerLocate} markerMode="title" manualLocation={manualLocation} onEventSelect={setSelectedEvent} />
           <button onClick={handleLocate} className="absolute top-4 right-4 z-[1000] bg-white dark:bg-gray-800 p-3 rounded-xl shadow-lg hover:bg-brand hover:text-white transition text-gray-700 dark:text-white border border-gray-200 dark:border-gray-700"><Navigation size={20} /></button>
@@ -514,27 +562,36 @@ END:VCALENDAR`;
           </div>
         </div>
 
+        {/* FEED SECTION */}
         <div className="h-[60%] md:h-full md:w-[40%] bg-white dark:bg-gray-900 order-2 md:order-1 border-r border-gray-200 dark:border-gray-700 flex flex-col shadow-2xl relative z-20">
           <div className="p-4 border-b border-gray-100 dark:border-gray-700 bg-white dark:bg-gray-900 shrink-0 space-y-3">
             <div className="flex justify-between items-center"><h1 className="text-2xl font-black tracking-tighter text-gray-900 dark:text-white">AKIŞ</h1><div className="text-[10px] font-bold text-gray-400">{loading ? '...' : events.length} Etkinlik</div></div>
 
-            {/* MOOD VE DİĞER FİLTRELER */}
+            {/* FILTERS */}
             <div className="flex gap-2 overflow-x-auto no-scrollbar">
               <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg p-1 shrink-0">
                 <button onClick={() => setTimeFilter('all')} className={`px-3 py-1 rounded-md text-xs font-bold ${timeFilter === 'all' ? 'bg-white dark:bg-gray-700 shadow-sm text-black dark:text-white' : 'text-gray-500'}`}>Tümü</button>
-                <button onClick={() => setTimeFilter('today')} className={`px-3 py-1 rounded-md text-xs font-bold ${timeFilter === 'today' ? 'bg-white dark:bg-gray-700 shadow-sm text-brand' : 'text-gray-500'}`}>Bugün Akşam</button>
-                <button onClick={() => setTimeFilter('tomorrow')} className={`px-3 py-1 rounded-md text-xs font-bold ${timeFilter === 'tomorrow' ? 'bg-white dark:bg-gray-700 shadow-sm text-brand' : 'text-gray-500'}`}>Yarın Akşam</button>
+                <button onClick={() => setTimeFilter('today')} className={`px-3 py-1 rounded-md text-xs font-bold ${timeFilter === 'today' ? 'bg-white dark:bg-gray-700 shadow-sm text-brand' : 'text-gray-500'}`}>Bugün</button>
+                <button onClick={() => setTimeFilter('tomorrow')} className={`px-3 py-1 rounded-md text-xs font-bold ${timeFilter === 'tomorrow' ? 'bg-white dark:bg-gray-700 shadow-sm text-brand' : 'text-gray-500'}`}>Yarın</button>
                 <button onClick={() => setTimeFilter('weekend')} className={`px-3 py-1 rounded-md text-xs font-bold ${timeFilter === 'weekend' ? 'bg-white dark:bg-gray-700 shadow-sm text-brand' : 'text-gray-500'}`}>Hafta Sonu</button>
                 <div className="w-[1px] h-4 bg-gray-300 dark:bg-gray-700 mx-1"></div>
                 <button onClick={() => setPriceFilter(priceFilter === 'all' ? 'free' : 'all')} className={`px-3 py-1 rounded-md text-xs font-bold flex items-center gap-1 ${priceFilter === 'free' ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-100' : 'text-gray-500'}`}><Banknote size={14} /> Ücretsiz</button>
               </div>
 
               <select value={activeMood} onChange={(e) => { setActiveMood(e.target.value); setActiveCategory('Tümü'); }} className="bg-gray-100 dark:bg-gray-800 dark:text-white text-xs font-bold p-2 rounded-lg border-none focus:ring-0 outline-none cursor-pointer shrink-0">
-                <option value="Tümü">Mood (Ruh Hali)</option>
+                <option value="Tümü">Mood</option>
                 {Object.keys(MOODS).map(m => <option key={m} value={m}>{m}</option>)}
               </select>
 
               <select value={activeCategory} onChange={(e) => setActiveCategory(e.target.value)} className="bg-gray-100 dark:bg-gray-800 dark:text-white text-xs font-bold p-2 rounded-lg border-none focus:ring-0 outline-none cursor-pointer shrink-0"><option value="Tümü">Kategori</option>{Array.from(new Set(allEvents.map(e => e.category))).map(c => <option key={c} value={c}>{c}</option>)}</select>
+            </div>
+
+            {/* PRICE SLIDER (Embedded in Header Area) */}
+            <div className="pt-2 px-1">
+              <div className="flex justify-between items-center mb-1">
+                <span className="text-[10px] uppercase font-bold text-gray-500">Bütçe: 0 - {priceRange[1] >= 5000 ? '5000+' : priceRange[1]} TL</span>
+              </div>
+              <input type="range" min="0" max="5000" step="100" value={priceRange[1]} onChange={(e) => setPriceRange([0, parseInt(e.target.value)])} className="w-full accent-brand h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700" />
             </div>
           </div>
 
@@ -563,6 +620,7 @@ END:VCALENDAR`;
                     <div>
                       <div className="flex items-center justify-between"><h3 className="font-bold text-sm md:text-lg text-gray-900 dark:text-white leading-tight line-clamp-2">{event.title}</h3>{isRecommended && !isSoldOut && <Star size={12} className="fill-yellow-400 text-yellow-400 shrink-0 ml-1" />}</div>
                       <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1 mt-1 truncate"><MapPin size={12} /> {event.venue_name}</div>
+                      {event.summary && <div className="text-xs text-brand/80 font-medium mt-2 line-clamp-2 leading-relaxed">✨ {event.summary}</div>}
                     </div>
                     <div className="flex justify-between items-end mt-2">
                       <div className="text-xs text-gray-400 font-medium">{formatDateRange(event.start_time, event.end_time)}</div>
@@ -582,5 +640,6 @@ END:VCALENDAR`;
         </div>
       </div>
     </div>
+
   )
 }

@@ -146,3 +146,22 @@ export async function dismissPopups(page: Page) {
         }
     }
 }
+
+export function parsePrice(priceStr: string | undefined): number | null {
+    if (!priceStr) return null;
+    // Remove non-numeric chars except comma/dot
+    // Common formats: "500 TL", "500.00 TL", "1.250 TL"
+
+    // 1. Remove currency symbol and whitespace
+    let clean = priceStr.replace('TL', '').replace('₺', '').trim();
+
+    // 2. Handle 1.000 format (Turkish thousands separator is dot)
+    // If there is a comma, it's likely a decimal separator in TR locale "10,50" -> 10.50
+    // "1.250" -> 1250
+
+    // Simple heuristic: Remove dots (thousands), replace comma with dot (decimal)
+    clean = clean.replace(/\./g, '').replace(',', '.');
+
+    const val = parseFloat(clean);
+    return isNaN(val) ? null : Math.round(val);
+}

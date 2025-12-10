@@ -5,6 +5,7 @@ import { BiletinialScraper } from './scrapers/biletinial.js';
 import { PassoScraper } from './scrapers/passo.js';
 import { BiletixScraper } from './scrapers/biletix.js';
 import { Scraper, Event } from './scrapers/types.js';
+import { parsePrice } from './scrapers/utils.js';
 
 dotenv.config();
 
@@ -33,16 +34,24 @@ async function saveEvents(events: Event[], source: string) {
             if (!event.title || !event.start_time) continue;
 
             // Prepare payload
-            // Ensure rule arrays are joined if DB expects text (based on my previous analysis DB has rules TEXT)
-            // If DB has rules TEXT[], then passing string[] is fine.
-            // Checked db_updates.sql: `rules TEXT`. So we must join.
-            // However `lib/types.ts` says `rules?: string | string[]`.
             const rulesPayload = Array.isArray(event.rules) ? event.rules.join('\n') : event.rules;
+
+            // Calculate min_price
+            let minPrice: number | null = null;
+            if (event.ticket_details && event.ticket_details.length > 0) {
+                const prices = event.ticket_details
+                    .map(t => parsePrice(t.price))
+                    .filter(p => p !== null) as number[];
+
+                if (prices.length > 0) {
+                    minPrice = Math.min(...prices);
+                }
+            }
 
             const payload = {
                 ...event,
-                rules: rulesPayload
-                // ticket_details is JSONB, so object array is fine.
+                rules: rulesPayload,
+                min_price: minPrice
             };
 
             // Upsert
