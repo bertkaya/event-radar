@@ -1,4 +1,4 @@
-import { checkEnvVars } from '@/lib/debug';
+
 import { createClient } from '@supabase/supabase-js';
 import { MetadataRoute } from 'next';
 
