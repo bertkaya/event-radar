@@ -104,3 +104,45 @@ export const normalizeDate = (d: string | undefined): string | null => {
 
 // Sleep helper
 export const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+// --- Popup Handling ---
+export async function dismissPopups(page: Page) {
+    // Generic selectors for Cookies, Newsletters, etc.
+    const selectors = [
+        '#onetrust-accept-btn-handler', // Common OneTrust
+        '.cc-btn.cc-dismiss',           // Common CookieConsent
+        'button[class*="cookie"][class*="accept"]',
+        'button[class*="close"]',
+        '[aria-label="Close"]',
+        '[aria-label="Kapat"]',
+        '.modal-close',
+        '.popup-close',
+        // Specific text buttons often used in TR
+        'xpath///button[contains(text(), "Kabul Et")]',
+        'xpath///button[contains(text(), "Tamam")]',
+        'xpath///button[contains(text(), "Anladım")]'
+    ];
+
+    for (const sel of selectors) {
+        try {
+            if (sel.startsWith('xpath/')) {
+                const xpath = sel.replace('xpath/', '');
+                const elements = await page.$$(`xpath/${xpath}`);
+                if (elements.length > 0) {
+                    await (elements[0] as any).click();
+                    console.log('Dismissed popup (XPath):', xpath);
+                    await sleep(500); // Wait for animation
+                }
+            } else {
+                const el = await page.$(sel);
+                if (el && await el.isVisible()) {
+                    await el.click();
+                    console.log('Dismissed popup (Selector):', sel);
+                    await sleep(500);
+                }
+            }
+        } catch (e) {
+            // Ignore errors, just trying to click
+        }
+    }
+}

@@ -1,6 +1,6 @@
 
 import { Scraper, Event, TicketDetail } from './types.js';
-import { getBrowser, normalizeDate, sleep } from './utils.js';
+import { getBrowser, normalizeDate, sleep, dismissPopups } from './utils.js';
 import { Page } from 'puppeteer';
 
 export const PassoScraper: Scraper = {
@@ -28,6 +28,7 @@ export const PassoScraper: Scraper = {
                 console.log(`[Passo] Visiting Category: ${cat.name}...`);
                 try {
                     await page.goto(cat.url, { waitUntil: 'networkidle2', timeout: 60000 });
+                    await dismissPopups(page); // Check for popups
 
                     // Delay
                     await sleep(Math.random() * 2000 + 1000);

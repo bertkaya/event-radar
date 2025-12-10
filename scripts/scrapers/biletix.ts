@@ -1,6 +1,6 @@
 
 import { Scraper, Event } from './types.js';
-import { getBrowser, normalizeDate, sleep } from './utils.js';
+import { getBrowser, normalizeDate, sleep, dismissPopups } from './utils.js';
 
 export const BiletixScraper: Scraper = {
     name: 'Biletix',
@@ -25,6 +25,8 @@ export const BiletixScraper: Scraper = {
                 console.log(`[Biletix] Visiting Category: ${cat.name}...`);
                 try {
                     await page.goto(cat.url, { waitUntil: 'networkidle2', timeout: 60000 });
+                    await dismissPopups(page); // Popups
+
                     await sleep(Math.random() * 2000 + 1000); // Politeness delay
 
                     // Collect Links
