@@ -18,10 +18,10 @@ if (!supabaseUrl || !supabaseKey) {
 
 const supabase = (supabaseUrl && supabaseKey) ? createClient(supabaseUrl, supabaseKey) : null;
 
-async function saveEvents(events: Event[], source: string) {
+async function saveEvents(events: Event[], source: string): Promise<{ new: number, updated: number }> {
     if (!supabase) {
         console.log(`[${source}] Simulation Mode: Would save ${events.length} events.`);
-        return;
+        return { new: 0, updated: 0 };
     }
 
     console.log(`[${source}] Saving ${events.length} events to DB...`);
@@ -81,6 +81,22 @@ async function saveEvents(events: Event[], source: string) {
         }
     }
     console.log(`[${source}] Done. New: ${newCount}, Updated: ${updatedCount}`);
+    return { new: newCount, updated: updatedCount };
+}
+
+async function logScraperRun(scraperName: string, status: 'running' | 'success' | 'failed', eventsCount: number = 0, errorMsg: string | null = null, durationMs: number = 0) {
+    if (!supabase) return;
+    try {
+        await supabase.from('scraper_logs').insert({
+            scraper_name: scraperName,
+            status,
+            events_count: eventsCount,
+            error_message: errorMsg,
+            duration_ms: durationMs
+        });
+    } catch (e) {
+        console.error('Failed to log scraper run:', e);
+    }
 }
 
 async function runAll() {
@@ -92,16 +108,23 @@ async function runAll() {
 
     console.log(`Starting ${scrapers.length} scrapers...`);
 
-    // Run sequentially to avoid browser conflicts or memory issues if they all launch Puppeteer
-    // Or mostly they launch their own browser instance. Sequential is safer.
     for (const scraper of scrapers) {
+        const startTime = Date.now();
         try {
             console.log(`\n--- Running ${scraper.name} ---`);
+            // await logScraperRun(scraper.name, 'running'); // Optional: Log start
+
             const events = await scraper.scrape();
             console.log(`[${scraper.name}] Scraped ${events.length} events.`);
-            await saveEvents(events, scraper.name);
-        } catch (e) {
+            const stats = await saveEvents(events, scraper.name);
+
+            const duration = Date.now() - startTime;
+            await logScraperRun(scraper.name, 'success', events.length, null, duration);
+
+        } catch (e: any) {
             console.error(`[${scraper.name}] Failed:`, e);
+            const duration = Date.now() - startTime;
+            await logScraperRun(scraper.name, 'failed', 0, e.message || String(e), duration);
         }
     }
 
