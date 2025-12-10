@@ -31,8 +31,10 @@ export const BiletixScraper: Scraper = {
 
                     // Collect Links
                     const links = await page.evaluate(() => {
-                        const anchors = Array.from(document.querySelectorAll('a[href*="/etkinlik/"]'));
-                        return anchors.map(a => (a as HTMLAnchorElement).href);
+                        const anchors = Array.from(document.querySelectorAll('a'));
+                        return anchors
+                            .map(a => (a as HTMLAnchorElement).href)
+                            .filter(href => href.includes('/etkinlik/') || href.includes('/etkinlik-grup/'));
                     });
 
                     console.log(`[Biletix] Found ${links.length} in ${cat.name}`);

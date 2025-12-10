@@ -36,8 +36,19 @@ export const BiletinialScraper: Scraper = {
                     await sleep(2000);
 
                     const links = await page.evaluate(() => {
-                        const anchors = Array.from(document.querySelectorAll('a[href*="/etkinlik/"], a.event-card'));
-                        return anchors.map(a => (a as HTMLAnchorElement).href);
+                        const allAnchors = Array.from(document.querySelectorAll('a'));
+                        return allAnchors
+                            .map(a => (a as HTMLAnchorElement).href)
+                            .filter(href => {
+                                return href.includes('/tr-tr/') &&
+                                    !href.includes('/search') &&
+                                    !href.includes('/WebLogin') &&
+                                    !href.includes('/sayfa/') &&
+                                    !href.endsWith('/tr-tr/muzik') &&
+                                    !href.endsWith('/tr-tr/tiyatro') &&
+                                    !href.endsWith('/tr-tr/spor') &&
+                                    !href.endsWith('/tr-tr/sinema');
+                            });
                     });
 
                     console.log(`[Biletinial] Check found ${links.length} in ${cat.name}`);

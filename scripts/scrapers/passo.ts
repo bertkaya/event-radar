@@ -39,10 +39,16 @@ export const PassoScraper: Scraper = {
                         await sleep(1500);
                     }
 
-                    // 3. Extract Event Links
+                    // 3. Extract Event Links (Support both <a href> and <div data-link>)
                     const links = await page.evaluate(() => {
-                        const anchors = Array.from(document.querySelectorAll('a[href*="/etkinlik/"]'));
-                        return anchors.map(a => (a as HTMLAnchorElement).href).filter(h => !h.includes('#'));
+                        const anchorHrefs = Array.from(document.querySelectorAll('a[href*="/etkinlik/"]'))
+                            .map(a => (a as HTMLAnchorElement).href);
+
+                        const dataLinks = Array.from(document.querySelectorAll('[data-link]'))
+                            .map(el => el.getAttribute('data-link'))
+                            .filter((l): l is string => typeof l === 'string' && l.includes('/etkinlik/'));
+
+                        return [...new Set([...anchorHrefs, ...dataLinks])].filter(h => !h.includes('#'));
                     });
 
                     console.log(`[Passo] Found ${links.length} in ${cat.name}`);
