@@ -401,6 +401,24 @@ export default function Admin() {
                         <input type="checkbox" name="sold_out" checked={formData.sold_out} onChange={handleChange} className="w-5 h-5 cursor-pointer accent-red-600" />
                         <span className="font-bold text-red-600 text-sm flex items-center gap-1"><Ban size={16} /> BİLETLER TÜKENDİ (SOLD OUT)</span>
                       </div>
+
+                      <div className="space-y-4 border-t pt-4 dark:border-gray-700">
+                        <div className="flex justify-between items-center">
+                          <label className="text-xs font-bold text-gray-400 uppercase">Bilet Seçenekleri</label>
+                          <button type="button" onClick={() => setFormData({ ...formData, ticket_details: [...formData.ticket_details, { name: '', price: '', status: 'active' }] })} className="text-xs bg-gray-200 dark:bg-gray-700 px-2 py-1 rounded font-bold hover:bg-gray-300 flex items-center gap-1"><Plus size={12} /> Ekle</button>
+                        </div>
+                        {formData.ticket_details.map((ticket, idx) => (
+                          <div key={idx} className="flex gap-2 items-center bg-gray-50 dark:bg-gray-800 p-2 rounded border dark:border-gray-700">
+                            <input placeholder="Tür" value={ticket.name} onChange={(e) => { const newDetails = [...formData.ticket_details]; newDetails[idx].name = e.target.value; setFormData({ ...formData, ticket_details: newDetails }); }} className="flex-1 border p-2 rounded text-xs dark:bg-gray-700 dark:border-gray-600" />
+                            <input placeholder="Fiyat" value={ticket.price} onChange={(e) => { const newDetails = [...formData.ticket_details]; newDetails[idx].price = e.target.value; setFormData({ ...formData, ticket_details: newDetails }); }} className="w-20 border p-2 rounded text-xs dark:bg-gray-700 dark:border-gray-600" />
+                            <select value={ticket.status} onChange={(e) => { const newDetails = [...formData.ticket_details]; newDetails[idx].status = e.target.value; setFormData({ ...formData, ticket_details: newDetails }); }} className="w-24 border p-2 rounded text-xs dark:bg-gray-700 dark:border-gray-600">
+                              <option value="active">Satışta</option>
+                              <option value="sold_out">Tükendi</option>
+                            </select>
+                            <button type="button" onClick={() => { const newDetails = formData.ticket_details.filter((_, i) => i !== idx); setFormData({ ...formData, ticket_details: newDetails }); }} className="p-2 text-red-500 hover:bg-red-100 rounded"><Trash2 size={14} /></button>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </div>
 

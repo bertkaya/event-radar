@@ -1,6 +1,6 @@
 
 import { Scraper, Event } from './types.js';
-import { getBrowser, normalizeDate } from './utils.js';
+import { getBrowser, normalizeDate, sleep } from './utils.js';
 
 export const BiletixScraper: Scraper = {
     name: 'Biletix',
@@ -11,26 +11,44 @@ export const BiletixScraper: Scraper = {
         const page = await browser.newPage();
 
         try {
-            // 1. Search for Müzik (Global)
-            // We use the search URL directly which is more stable than interacting with headers
-            const url = 'https://www.biletix.com/search/TURKIYE/tr?searchq=M%C3%BCzik';
-            console.log(`[Biletix] Navigating to ${url}...`);
+            // 1. Search Multiple Categories
+            const categories = [
+                { name: 'Müzik', url: 'https://www.biletix.com/search/TURKIYE/tr?searchq=M%C3%BCzik' },
+                { name: 'Sahne', url: 'https://www.biletix.com/search/TURKIYE/tr?searchq=Sahne' },
+                { name: 'Spor', url: 'https://www.biletix.com/search/TURKIYE/tr?searchq=Spor' },
+                { name: 'Aile', url: 'https://www.biletix.com/search/TURKIYE/tr?searchq=Aile' }
+            ];
 
-            await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
+            const allLinks = new Set<string>();
 
-            // 2. Collect Links
-            // Biletix usually lists events in divs with specific classes.
-            // We look for 'searchResultItem' or similar structure, or just links to /etkinlik/
-            const links = await page.evaluate(() => {
-                const anchors = Array.from(document.querySelectorAll('a[href*="/etkinlik/"]'));
-                return [...new Set(anchors.map(a => (a as HTMLAnchorElement).href))];
-            });
+            for (const cat of categories) {
+                console.log(`[Biletix] Visiting Category: ${cat.name}...`);
+                try {
+                    await page.goto(cat.url, { waitUntil: 'networkidle2', timeout: 60000 });
+                    await sleep(Math.random() * 2000 + 1000); // Politeness delay
 
-            console.log(`[Biletix] Found ${links.length} events. Processing first 10...`);
+                    // Collect Links
+                    const links = await page.evaluate(() => {
+                        const anchors = Array.from(document.querySelectorAll('a[href*="/etkinlik/"]'));
+                        return anchors.map(a => (a as HTMLAnchorElement).href);
+                    });
+
+                    console.log(`[Biletix] Found ${links.length} in ${cat.name}`);
+                    links.forEach(l => allLinks.add(l));
+
+                } catch (e) {
+                    console.error(`[Biletix] Error visiting ${cat.name}:`, e);
+                }
+            }
+
+            const uniqueLinks = [...allLinks];
+            console.log(`[Biletix] Found total ${uniqueLinks.length} unique events. Processing first 15...`);
             await page.close();
 
             // 3. Process Details
-            for (const link of links.slice(0, 10)) {
+            for (const link of uniqueLinks.slice(0, 15)) {
+                await sleep(Math.random() * 2000 + 1000); // 1-3s delay
+
                 console.log(`[Biletix] Scraping: ${link}`);
                 const detailPage = await browser.newPage();
                 try {

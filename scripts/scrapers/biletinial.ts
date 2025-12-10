@@ -11,25 +11,49 @@ export const BiletinialScraper: Scraper = {
         const page = await browser.newPage();
 
         try {
-            // 1. Listings
-            const url = 'https://biletinial.com/tr-tr/muzik'; // Direct music category
-            console.log(`[Biletinial] Navigating to ${url}...`);
-            await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
+            // 1. Listings - Multiple Categories
+            const categories = [
+                { name: 'Müzik', url: 'https://biletinial.com/tr-tr/muzik' },
+                { name: 'Tiyatro', url: 'https://biletinial.com/tr-tr/tiyatro' },
+                { name: 'Spor', url: 'https://biletinial.com/tr-tr/spor' },
+                { name: 'Stand Up', url: 'https://biletinial.com/tr-tr/stand-up' }
+            ];
 
-            // Scroll bits
-            await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-            await sleep(2000);
+            const allLinks = new Set<string>();
 
-            const links = await page.evaluate(() => {
-                const anchors = Array.from(document.querySelectorAll('a[href*="/etkinlik/"], a.event-card'));
-                return [...new Set(anchors.map(a => (a as HTMLAnchorElement).href))];
-            });
+            for (const cat of categories) {
+                console.log(`[Biletinial] Visiting Category: ${cat.name} (${cat.url})...`);
+                try {
+                    await page.goto(cat.url, { waitUntil: 'networkidle2', timeout: 60000 });
 
-            console.log(`[Biletinial] Found ${links.length} events. Processing first 10...`);
+                    // Random delay 1-3 seconds
+                    await sleep(Math.random() * 2000 + 1000);
+
+                    // Scroll bits
+                    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+                    await sleep(2000);
+
+                    const links = await page.evaluate(() => {
+                        const anchors = Array.from(document.querySelectorAll('a[href*="/etkinlik/"], a.event-card'));
+                        return anchors.map(a => (a as HTMLAnchorElement).href);
+                    });
+
+                    console.log(`[Biletinial] Check found ${links.length} in ${cat.name}`);
+                    links.forEach(l => allLinks.add(l));
+
+                } catch (err) {
+                    console.error(`[Biletinial] Error fetching category ${cat.name}:`, err);
+                }
+            }
+
+            const uniqueLinks = [...allLinks];
+            console.log(`[Biletinial] Found total ${uniqueLinks.length} unique events. Processing first 15...`);
             await page.close();
 
             // 2. Details
-            for (const link of links.slice(0, 10)) {
+            // Limit to 15 to be safe but cover more ground
+            for (const link of uniqueLinks.slice(0, 15)) {
+                await sleep(Math.random() * 2000 + 1000); // 1-3s delay between events
                 console.log(`[Biletinial] Scraping: ${link}`);
                 const detailPage = await browser.newPage();
                 try {

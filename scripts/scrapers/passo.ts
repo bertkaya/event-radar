@@ -14,33 +14,56 @@ export const PassoScraper: Scraper = {
         const page = await browser.newPage();
 
         try {
-            // 1. Go to Music Category
-            const listUrl = 'https://www.passo.com.tr/tr/kategori/muzik-konser-festival-biletleri/8615';
-            console.log(`[Passo] Navigating to ${listUrl}...`);
-            await page.goto(listUrl, { waitUntil: 'networkidle2', timeout: 60000 });
+            // 1. Listings - Multi Category
+            const categories = [
+                { name: 'Müzik', url: 'https://www.passo.com.tr/tr/kategori/muzik-konser-festival-biletleri/8615' },
+                { name: 'Sahne Sanatları', url: 'https://www.passo.com.tr/tr/kategori/sahne-sanatlari-biletleri/8617' },
+                { name: 'Spor', url: 'https://www.passo.com.tr/tr/kategori/spor-biletleri/8621' },
+                { name: 'Müze', url: 'https://www.passo.com.tr/tr/kategori/muze-biletleri/8619' }
+            ];
 
-            // 2. Scroll to load items (Try 3 times)
-            for (let i = 0; i < 3; i++) {
-                await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-                await sleep(2000);
+            const allLinks = new Set<string>();
+
+            for (const cat of categories) {
+                console.log(`[Passo] Visiting Category: ${cat.name}...`);
+                try {
+                    await page.goto(cat.url, { waitUntil: 'networkidle2', timeout: 60000 });
+
+                    // Delay
+                    await sleep(Math.random() * 2000 + 1000);
+
+                    // 2. Scroll to load items (Try 2 times)
+                    for (let i = 0; i < 2; i++) {
+                        await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+                        await sleep(1500);
+                    }
+
+                    // 3. Extract Event Links
+                    const links = await page.evaluate(() => {
+                        const anchors = Array.from(document.querySelectorAll('a[href*="/etkinlik/"]'));
+                        return anchors.map(a => (a as HTMLAnchorElement).href).filter(h => !h.includes('#'));
+                    });
+
+                    console.log(`[Passo] Found ${links.length} in ${cat.name}`);
+                    links.forEach(l => allLinks.add(l));
+
+                } catch (e) {
+                    console.error(`[Passo] Error visiting ${cat.name}:`, e);
+                }
             }
 
-            // 3. Extract Event Links
-            // Selectors based on generic observation of Passo structure (usually .card or a with href containing /etkinlik/)
-            // We will look for links that look like event details.
-            const links = await page.evaluate(() => {
-                const anchors = Array.from(document.querySelectorAll('a[href*="/etkinlik/"]'));
-                return [...new Set(anchors.map(a => (a as HTMLAnchorElement).href))].filter(h => !h.includes('#'));
-            });
-
-            console.log(`[Passo] Found ${links.length} potential event links. Processing first 10...`);
+            const uniqueLinks = [...allLinks];
+            console.log(`[Passo] Found total ${uniqueLinks.length} unique events. Processing first 15...`);
 
             // Close the listing page to save resources
             await page.close();
 
             // 4. Visit Detail Pages
             // Process in serial to avoid overwhelming the browser/site
-            for (const url of links.slice(0, 10)) {
+            // Limit to 15
+            for (const url of uniqueLinks.slice(0, 15)) {
+                await sleep(Math.random() * 2000 + 1000); // Inter-request delay
+
                 console.log(`[Passo] Scraping detail: ${url}`);
                 const detailPage = await browser.newPage();
                 try {
