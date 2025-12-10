@@ -40,7 +40,8 @@ export default function Admin() {
     tags: '', // Comma separated
     organizer_id: '',
     is_single_day: true,
-    ticket_details: [] as any[]
+    ticket_details: [] as any[],
+    ai_mood: '' // New Field
   })
 
   // Filter state
@@ -163,7 +164,8 @@ export default function Admin() {
       tags: event.tags ? event.tags.join(', ') : '',
       organizer_id: event.organizer_id?.toString() || '',
       is_single_day: !event.end_time || (new Date(event.start_time).toDateString() === new Date(event.end_time).toDateString()),
-      ticket_details: event.ticket_details || []
+      ticket_details: event.ticket_details || [],
+      ai_mood: event.ai_mood || ''
     })
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -174,7 +176,7 @@ export default function Admin() {
       title: '', venue_mode: 'existing', venue_id: '', venue_name: '', address: '', category: 'Müzik', price: '',
       date: '', time: '', end_date: '', end_time: '', lat: '', lng: '',
       description: '', maps_url: '', image_url: '', ticket_url: '', media_url: '', sold_out: false,
-      rules: '', tags: '', organizer_id: '', is_single_day: true, ticket_details: []
+      rules: '', tags: '', organizer_id: '', is_single_day: true, ticket_details: [], ai_mood: ''
     })
   }
 
@@ -252,7 +254,8 @@ export default function Admin() {
         rules: formData.rules,
         ticket_details: formData.ticket_details,
         tags: formData.tags ? formData.tags.split(',').map(t => t.trim()) : [],
-        organizer_id: formData.organizer_id ? parseInt(formData.organizer_id) : null
+        organizer_id: formData.organizer_id ? parseInt(formData.organizer_id) : null,
+        ai_mood: formData.ai_mood // Save mood
       }
 
       if (editingId) {
@@ -442,7 +445,17 @@ export default function Admin() {
                           <option value="">-- Organizatör (Opsiyonel) --</option>
                           {organizers.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
                         </select>
-                        <input name="tags" value={formData.tags} onChange={handleChange} className="w-full border p-3 rounded-lg text-sm dark:bg-gray-700 dark:border-gray-600" placeholder="Etiketler (Virgül ile ayır: Caz, Yılbaşı...)" />
+                      </div>
+
+                      <div className="space-y-4 border-t pt-4 dark:border-gray-700">
+                        <label className="block text-xs font-bold text-gray-400 uppercase">AI / Etiketler</label>
+                        <div className="flex gap-2">
+                          <input name="tags" value={formData.tags} onChange={handleChange} className="w-1/2 border p-3 rounded-lg text-sm dark:bg-gray-700 dark:border-gray-600" placeholder="Etiketler (Virgül ile ayır)" />
+                          <select name="ai_mood" value={formData.ai_mood} onChange={handleChange} className="w-1/2 border p-3 rounded-lg dark:bg-gray-700 dark:border-gray-600 text-sm">
+                            <option value="">-- Mood Seç --</option>
+                            {['Enerjik', 'Romantik', 'Hüzünlü', 'Eğlenceli', 'Sakin', 'Gergin', 'Korku', 'Heyecanlı', 'İlham Verici', 'Mistik'].map(m => <option key={m} value={m}>{m}</option>)}
+                          </select>
+                        </div>
                       </div>
 
                       <div className="flex gap-2 items-center bg-red-50 dark:bg-red-900/10 p-3 rounded-lg border border-red-100 dark:border-red-900/30 cursor-pointer" onClick={() => setFormData({ ...formData, sold_out: !formData.sold_out })}>

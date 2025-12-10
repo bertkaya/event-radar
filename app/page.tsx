@@ -423,7 +423,7 @@ END:VCALENDAR`;
 
       {selectedEvent && (
         <div className="fixed inset-0 z-[2000] flex items-end md:items-center justify-center pointer-events-none">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm pointer-events-auto transition-opacity" onClick={() => setSelectedEvent(null)}></div>
+          <div className="absolute inset-0 bg-black/60 pointer-events-auto transition-opacity" onClick={() => setSelectedEvent(null)}></div>
           <div className="bg-white dark:bg-gray-900 w-full md:w-[500px] md:rounded-3xl rounded-t-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] pointer-events-auto animate-in slide-in-from-bottom-5 duration-300">
             <button onClick={() => setSelectedEvent(null)} className="absolute top-4 right-4 z-30 bg-black/50 hover:bg-black text-white p-2 rounded-full backdrop-blur transition"><X size={24} /></button>
 
