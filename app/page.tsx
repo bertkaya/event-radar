@@ -517,7 +517,7 @@ END:VCALENDAR`;
               )}
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            <div className="flex-1 overflow-y-auto p-6 space-y-6 pointer-events-auto">
               <div>
                 <div className="flex justify-between items-start mb-2">
                   <h2 className="font-black text-2xl text-gray-900 dark:text-white leading-tight">{selectedEvent.title}</h2>
@@ -576,7 +576,7 @@ END:VCALENDAR`;
               </div>
             </div>
 
-            <div className="p-4 border-t border-gray-100 dark:border-gray-700 bg-white dark:bg-gray-800 flex items-center gap-3 shrink-0 pb-8 md:pb-4">
+            <div className="p-4 border-t border-gray-100 dark:border-gray-700 bg-white dark:bg-gray-800 flex items-center gap-3 shrink-0 pb-8 md:pb-4 pointer-events-auto">
               <button onClick={(e) => toggleFavorite(e, selectedEvent.id, selectedEvent.category)} className="p-3 rounded-xl bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 transition"><Heart size={24} className={favorites.includes(selectedEvent.id) ? "fill-brand text-brand" : ""} /></button>
               {selectedEvent.sold_out ? (
                 <div className="flex-1 bg-gray-300 dark:bg-gray-700 text-gray-500 font-bold py-3 rounded-xl flex items-center justify-center gap-2 cursor-not-allowed"><Ban size={20} /> TÜKENDİ</div>
