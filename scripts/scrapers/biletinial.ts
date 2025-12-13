@@ -1,6 +1,5 @@
-
-import { Scraper, Event, TicketDetail } from './types.js';
-import { getBrowser, normalizeDate, sleep, dismissPopups, safeNavigate } from './utils.js';
+import { Scraper, Event, TicketDetail } from './types';
+import { getBrowser, normalizeDate, sleep, dismissPopups, safeNavigate, autoScroll } from './utils';
 
 // All Biletinial category URLs with proper category mapping
 const BILETINIAL_CATEGORIES = [
@@ -44,19 +43,17 @@ export const BiletinialScraper: Scraper = {
         const processedUrls = new Set<string>();
 
         for (const catInfo of BILETINIAL_CATEGORIES) {
-            console.log(`\n[Biletinial] Category: ${catInfo.category} - ${catInfo.url}`);
+            console.log(`\n[Biletinial] Category: ${catInfo.category} - ${catInfo.url} `);
             const page = await browser.newPage();
 
             try {
                 // Navigate with popup handling
-                await safeNavigate(page, catInfo.url);
+                await safeNavigate(page, catInfo.url, { waitUntil: 'networkidle2' }); // Use networkidle2 for initial load
+                await dismissPopups(page); // Dismiss popups after initial load
                 await sleep(2000);
 
-                // Scroll to load more events
-                for (let i = 0; i < 3; i++) {
-                    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-                    await sleep(1000);
-                }
+                // Scroll to load more events using autoScroll
+                await autoScroll(page);
 
                 // Find event links on the category page
                 const eventLinks = await page.evaluate(() => {
@@ -98,7 +95,7 @@ export const BiletinialScraper: Scraper = {
                     return [...new Set(links)];
                 });
 
-                console.log(`[Biletinial] Found ${eventLinks.length} event links in ${catInfo.category}`);
+                console.log(`[Biletinial] Found ${eventLinks.length} event links in ${catInfo.category} `);
 
                 // Process each event (limit to 25 per category for speed)
                 for (const eventUrl of eventLinks.slice(0, 25)) {
@@ -108,14 +105,14 @@ export const BiletinialScraper: Scraper = {
                     const eventData = await scrapeEventDetail(browser, eventUrl, catInfo.category);
                     if (eventData) {
                         events.push(eventData);
-                        console.log(`[Biletinial] ✓ Scraped: ${eventData.title}`);
+                        console.log(`[Biletinial] ✓ Scraped: ${eventData.title} `);
                     }
 
                     await sleep(800); // Reduced delay for speed
                 }
 
             } catch (e) {
-                console.error(`[Biletinial] Error in category ${catInfo.category}:`, e);
+                console.error(`[Biletinial] Error in category ${catInfo.category}: `, e);
             } finally {
                 await page.close();
             }
@@ -148,7 +145,7 @@ async function scrapeEventDetail(browser: any, url: string, category: string): P
         // Extract all event information
         const eventInfo = await page.evaluate(() => {
             const getText = (sel: string) => document.querySelector(sel)?.textContent?.trim() || '';
-            const getMeta = (prop: string) => document.querySelector(`meta[property="${prop}"]`)?.getAttribute('content') || '';
+            const getMeta = (prop: string) => document.querySelector(`meta[property = "${prop}"]`)?.getAttribute('content') || '';
 
             // Title
             const title = document.querySelector('h1')?.textContent?.trim() ||
@@ -255,7 +252,7 @@ async function scrapeEventDetail(browser: any, url: string, category: string): P
         return event;
 
     } catch (e) {
-        console.error(`[Biletinial] Error scraping ${url}:`, e);
+        console.error(`[Biletinial] Error scraping ${url}: `, e);
         await page.close();
         return null;
     }

@@ -102,11 +102,55 @@ export default function Admin() {
 
   // --- EXCEL ---
   const downloadTemplate = () => {
-    const headers = [{ "Baslik": "Örnek Konser", "Mekan": "Jolly Joker", "Adres": "Kavaklıdere", "Kategori": "Müzik", "Fiyat": "250 TL", "Baslangic": "2025-12-30 21:00", "Bitis": "2025-12-30 23:00", "Enlem": "39.9173", "Boylam": "32.8606", "Aciklama": "Detaylar...", "Resim": "", "Bilet": "", "Kurallar": "18+" }]
-    const ws = XLSX.utils.json_to_sheet(headers);
+    // 1. Instructions Sheet
+    const instructions = [
+      { Kolon: "Baslik", Zorunlu: "Evet", Aciklama: "Etkinliğin adı (Ör: Yaz Konseri)" },
+      { Kolon: "Mekan", Zorunlu: "Evet", Aciklama: "Mekan adı (Ör: Jolly Joker)" },
+      { Kolon: "Adres", Zorunlu: "Hayır", Aciklama: "Açık adres" },
+      { Kolon: "Kategori", Zorunlu: "Evet", Aciklama: "Müzik, Tiyatro, Spor, Sanat, Eğitim, Stand-Up, Festival, Teknoloji, Diğer" },
+      { Kolon: "Fiyat", Zorunlu: "Hayır", Aciklama: "Örnekler: 'Ücretsiz', '100 TL', 'Tam: 100 TL | Öğrenci: 50 TL'" },
+      { Kolon: "Baslangic", Zorunlu: "Evet", Aciklama: "Format: GG.AA.YYYY SS:DD (Ör: 30.12.2025 21:00)" },
+      { Kolon: "Bitis", Zorunlu: "Hayır", Aciklama: "Format: GG.AA.YYYY SS:DD" },
+      { Kolon: "Enlem", Zorunlu: "Hayır", Aciklama: "Harita konumu için (Ör: 39.9173)" },
+      { Kolon: "Boylam", Zorunlu: "Hayır", Aciklama: "Harita konumu için (Ör: 32.8606)" },
+      { Kolon: "Aciklama", Zorunlu: "Hayır", Aciklama: "Detaylı açıklama metni" },
+      { Kolon: "Resim", Zorunlu: "Hayır", Aciklama: "Görsel URL bağlantısı (https://...)" },
+      { Kolon: "Bilet", Zorunlu: "Hayır", Aciklama: "Bilet satış linki" },
+      { Kolon: "Kurallar", Zorunlu: "Hayır", Aciklama: "Kuralları | işareti ile ayırın (Ör: 18 yaş sınırı | Kameralı kayıt yasak)" },
+      { Kolon: "Tags", Zorunlu: "Hayır", Aciklama: "Virgülle ayrılmış etiketler (Ör: konser, rock, ankara)" },
+    ];
+
+    // 2. Examples Sheet
+    const examples = [
+      {
+        "Baslik": "Büyük Rock Konseri", "Mekan": "Jolly Joker", "Adres": "Kavaklıdere Mah.", "Kategori": "Müzik",
+        "Fiyat": "Tam: 250 TL | Öğrenci: 150 TL", "Baslangic": "15.06.2025 21:00", "Bitis": "15.06.2025 23:30",
+        "Enlem": "39.9173", "Boylam": "32.8606", "Aciklama": "Muhteşem bir rock gecesi...",
+        "Resim": "", "Bilet": "https://biletix.com/...", "Kurallar": "18 Yaş Sınırı | Dışarıdan yiyecek getirilmez",
+        "Tags": "rock, müzik, konser"
+      },
+      {
+        "Baslik": "Tiyatro Gösterisi", "Mekan": "Küçük Sahne", "Adres": "Kızılay", "Kategori": "Tiyatro",
+        "Fiyat": "100 TL", "Baslangic": "20.06.2025 19:00", "Bitis": "20.06.2025 20:30",
+        "Enlem": "39.9200", "Boylam": "32.8500", "Aciklama": "Dramatik bir oyun.",
+        "Resim": "", "Bilet": "", "Kurallar": "", "Tags": "tiyatro, sanat"
+      }
+    ];
+
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Etkinlikler");
-    XLSX.writeFile(wb, "Etkinlik_Taslak.xlsx");
+
+    // Add Examples Sheet First (Active)
+    const wsExamples = XLSX.utils.json_to_sheet(examples);
+    // Set column widths for readability
+    wsExamples['!cols'] = [{ wch: 20 }, { wch: 15 }, { wch: 15 }, { wch: 10 }, { wch: 25 }, { wch: 16 }, { wch: 16 }, { wch: 10 }, { wch: 10 }, { wch: 30 }, { wch: 20 }, { wch: 20 }, { wch: 30 }, { wch: 20 }];
+    XLSX.utils.book_append_sheet(wb, wsExamples, "Etkinlikler");
+
+    // Add Instructions Sheet
+    const wsInstructions = XLSX.utils.json_to_sheet(instructions);
+    wsInstructions['!cols'] = [{ wch: 15 }, { wch: 10 }, { wch: 80 }];
+    XLSX.utils.book_append_sheet(wb, wsInstructions, "Talimatlar");
+
+    XLSX.writeFile(wb, "Etkinlik_Yukleme_Sablonu.xlsx");
   }
 
   const handleExcelUpload = (e: any) => {
@@ -147,14 +191,28 @@ export default function Admin() {
             }
           }
 
+          // Date Parser for EU Format (DD.MM.YYYY HH:mm) or ISO
+          const parseDate = (d: any) => {
+            if (!d) return null;
+            const str = d.toString().trim();
+            // Check for DD.MM.YYYY format
+            const euMatch = str.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})(?:\s+(\d{1,2}):(\d{1,2}))?$/);
+            if (euMatch) {
+              const [_, day, month, year, hour, min] = euMatch;
+              return new Date(`${year}-${month}-${day}T${hour || '00'}:${min || '00'}:00`).toISOString();
+            }
+            // Fallback to standard parser
+            try { return new Date(str).toISOString(); } catch { return new Date().toISOString(); }
+          };
+
           return {
             title: row.Baslik || "Başlıksız",
             venue_name: row.Mekan || "Belirsiz",
             address: row.Adres || "",
             category: row.Kategori || "Müzik",
             price: price,
-            start_time: row.Baslangic ? new Date(row.Baslangic).toISOString() : new Date().toISOString(),
-            end_time: row.Bitis ? new Date(row.Bitis).toISOString() : null,
+            start_time: parseDate(row.Baslangic) || new Date().toISOString(),
+            end_time: parseDate(row.Bitis),
             lat: parseFloat(row.Enlem || 0),
             lng: parseFloat(row.Boylam || 0),
             description: row.Aciklama || "",
@@ -426,7 +484,7 @@ export default function Admin() {
                     <tbody>
                       {scraperLogs.map(log => (
                         <tr key={log.id} className="bg-white border-b dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
-                          <td className="px-6 py-4 font-mono text-xs">{new Date(log.created_at).toLocaleString('tr-TR')}</td>
+                          <td className="px-6 py-4 font-mono text-xs">{new Date(log.created_at).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
                           <td className="px-6 py-4 font-bold">{log.scraper_name}</td>
                           <td className="px-6 py-4">
                             {log.status === 'success' && <span className="bg-green-100 text-green-800 text-xs font-bold px-2 py-0.5 rounded">Başarılı</span>}
@@ -641,7 +699,7 @@ export default function Admin() {
                         <div>
                           <div className="font-bold text-gray-900 dark:text-white leading-tight">{event.title}</div>
                           <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 flex gap-2">
-                            <span className="flex items-center gap-1"><Calendar size={12} /> {new Date(event.start_time).toLocaleDateString('tr-TR')}</span>
+                            <span className="flex items-center gap-1"><Calendar size={12} /> {new Date(event.start_time).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                             <span className="flex items-center gap-1"><MapPin size={12} /> {event.venue_name}</span>
                           </div>
                         </div>
