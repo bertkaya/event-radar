@@ -486,9 +486,9 @@ END:VCALENDAR`;
       )}
 
       {selectedEvent && (
-        <div className="fixed inset-0 z-[2000] flex items-end md:items-center justify-center pointer-events-none">
-          <div className="absolute inset-0 bg-black/60 pointer-events-auto transition-opacity" onClick={() => setSelectedEvent(null)}></div>
-          <div className="bg-white dark:bg-gray-900 w-full md:w-[500px] md:rounded-3xl rounded-t-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] pointer-events-auto animate-in slide-in-from-bottom-5 duration-300">
+        <div className="fixed inset-0 z-[2000] flex items-end md:items-center justify-center">
+          <div className="absolute inset-0 bg-black/60 transition-opacity" onClick={() => setSelectedEvent(null)}></div>
+          <div className="bg-white dark:bg-gray-900 w-full md:w-[500px] md:rounded-3xl rounded-t-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in slide-in-from-bottom-5 duration-300">
             <button onClick={() => setSelectedEvent(null)} className="absolute top-4 right-4 z-30 bg-black/50 hover:bg-black text-white p-2 rounded-full backdrop-blur transition"><X size={24} /></button>
 
             <div className="h-64 md:h-72 bg-brand relative shrink-0 flex items-center justify-center overflow-hidden">
@@ -517,7 +517,7 @@ END:VCALENDAR`;
               )}
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6 space-y-6 pointer-events-auto">
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
               <div>
                 <div className="flex justify-between items-start mb-2">
                   <h2 className="font-black text-2xl text-gray-900 dark:text-white leading-tight">{selectedEvent.title}</h2>
@@ -576,7 +576,7 @@ END:VCALENDAR`;
               </div>
             </div>
 
-            <div className="p-4 border-t border-gray-100 dark:border-gray-700 bg-white dark:bg-gray-800 flex items-center gap-3 shrink-0 pb-8 md:pb-4 pointer-events-auto">
+            <div className="p-4 border-t border-gray-100 dark:border-gray-700 bg-white dark:bg-gray-800 flex items-center gap-3 shrink-0 pb-8 md:pb-4">
               <button onClick={(e) => toggleFavorite(e, selectedEvent.id, selectedEvent.category)} className="p-3 rounded-xl bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 transition"><Heart size={24} className={favorites.includes(selectedEvent.id) ? "fill-brand text-brand" : ""} /></button>
               {selectedEvent.sold_out ? (
                 <div className="flex-1 bg-gray-300 dark:bg-gray-700 text-gray-500 font-bold py-3 rounded-xl flex items-center justify-center gap-2 cursor-not-allowed"><Ban size={20} /> TÜKENDİ</div>
