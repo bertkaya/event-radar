@@ -247,9 +247,9 @@ export default function Admin() {
       address: event.address || '',
       category: event.category,
       price: event.price,
-      date: start.toISOString().split('T')[0],
+      date: `${start.getDate().toString().padStart(2, '0')}.${(start.getMonth() + 1).toString().padStart(2, '0')}.${start.getFullYear()}`,
       time: start.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', hour12: false }),
-      end_date: end ? end.toISOString().split('T')[0] : '',
+      end_date: end ? `${end.getDate().toString().padStart(2, '0')}.${(end.getMonth() + 1).toString().padStart(2, '0')}.${end.getFullYear()}` : '',
       end_time: end ? end.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', hour12: false }) : '',
       lat: event.lat.toString(),
       lng: event.lng.toString(),
@@ -311,11 +311,16 @@ export default function Admin() {
     setLoading(true); setMsg('')
 
     try {
-      const startIso = new Date(`${formData.date}T${formData.time}`).toISOString()
+      // Parse EU date format DD.MM.YYYY to ISO
+      const parseEuDate = (dateStr: string, timeStr: string) => {
+        const [day, month, year] = dateStr.split('.');
+        return new Date(`${year}-${month}-${day}T${timeStr}`).toISOString();
+      };
+      const startIso = parseEuDate(formData.date, formData.time);
       let endIso = null
 
       if (!formData.is_single_day && formData.end_date && formData.end_time) {
-        endIso = new Date(`${formData.end_date}T${formData.end_time}`).toISOString()
+        endIso = parseEuDate(formData.end_date, formData.end_time)
       }
 
       // 1. Handle Venue
@@ -573,7 +578,7 @@ export default function Admin() {
                         <div className="bg-gray-50 dark:bg-gray-900 p-4 rounded-xl border border-gray-100 dark:border-gray-700 space-y-3">
                           <div className="flex gap-2 items-center">
                             <span className="w-16 text-xs font-bold text-gray-500">BAŞLANGIÇ</span>
-                            <input type="date" name="date" value={formData.date} onChange={(e) => { handleChange(e); calculateEndDate(); }} required className="flex-1 border p-2 rounded dark:bg-gray-700 dark:border-gray-600" />
+                            <input type="text" name="date" value={formData.date} onChange={(e) => { handleChange(e); calculateEndDate(); }} required placeholder="GG.AA.YYYY" className="flex-1 border p-2 rounded dark:bg-gray-700 dark:border-gray-600 font-mono" />
                             <input type="time" name="time" value={formData.time} onChange={handleChange} required className="w-24 border p-2 rounded dark:bg-gray-700 dark:border-gray-600" />
                           </div>
 
@@ -585,7 +590,7 @@ export default function Admin() {
                           {!formData.is_single_day && (
                             <div className="flex gap-2 items-center animate-in fade-in">
                               <span className="w-16 text-xs font-bold text-gray-500">BİTİŞ</span>
-                              <input type="date" name="end_date" value={formData.end_date} onChange={handleChange} className="flex-1 border p-2 rounded dark:bg-gray-700 dark:border-gray-600" />
+                              <input type="text" name="end_date" value={formData.end_date} onChange={handleChange} placeholder="GG.AA.YYYY" className="flex-1 border p-2 rounded dark:bg-gray-700 dark:border-gray-600 font-mono" />
                               <input type="time" name="end_time" value={formData.end_time} onChange={handleChange} className="w-24 border p-2 rounded dark:bg-gray-700 dark:border-gray-600" />
                             </div>
                           )}
