@@ -41,63 +41,74 @@ async function scrapeToExcel() {
     const timestamp = new Date().toISOString().slice(0, 10);
     const outputDir = path.join(process.cwd(), 'exports');
 
-    // Create exports directory if not exists
-    if (!fs.existsSync(outputDir)) {
-        fs.mkdirSync(outputDir, { recursive: true });
-    }
-
-    // Run scrapers
-    const scrapers = [
-        { instance: BiletinialScraper, name: 'Biletinial' },
-        { instance: PassoScraper, name: 'Passo' },
-        { instance: BiletixScraper, name: 'Biletix' }
-    ];
-
-    for (const scraper of scrapers) {
-        console.log(`\n--- Running ${scraper.name} ---`);
-        try {
-            const events = await scraper.instance.scrape();
-            console.log(`[${scraper.name}] Found ${events.length} events`);
-
-            // Save individual Excel per source
-            if (events.length > 0) {
-                const data = eventsToExcelData(events);
-                const ws = XLSX.utils.json_to_sheet(data);
-                const wb = XLSX.utils.book_new();
-                XLSX.utils.book_append_sheet(wb, ws, 'Etkinlikler');
-
-                const filename = `${scraper.name}_${timestamp}.xlsx`;
-                const filepath = path.join(outputDir, filename);
-                XLSX.writeFile(wb, filepath);
-                console.log(`✅ Saved: ${filepath}`);
-            }
-
-            allEvents.push(...events);
-        } catch (e) {
-            console.error(`[${scraper.name}] Error:`, e);
+    try {
+        // Create exports directory if not exists
+        if (!fs.existsSync(outputDir)) {
+            fs.mkdirSync(outputDir, { recursive: true });
         }
+
+        // Run scrapers sequentially to avoid resource conflicts
+        const scrapers = [
+            { instance: BiletinialScraper, name: 'Biletinial' },
+            { instance: PassoScraper, name: 'Passo' },
+            { instance: BiletixScraper, name: 'Biletix' }
+        ];
+
+        for (const scraper of scrapers) {
+            console.log(`\n--- Running ${scraper.name} ---`);
+            try {
+                const events = await scraper.instance.scrape();
+                console.log(`[${scraper.name}] Found ${events.length} events`);
+
+                // Save individual Excel per source
+                if (events.length > 0) {
+                    const data = eventsToExcelData(events);
+                    const ws = XLSX.utils.json_to_sheet(data);
+                    const wb = XLSX.utils.book_new();
+                    XLSX.utils.book_append_sheet(wb, ws, 'Etkinlikler');
+
+                    const filename = `${scraper.name}_${timestamp}.xlsx`;
+                    const filepath = path.join(outputDir, filename);
+                    XLSX.writeFile(wb, filepath);
+                    console.log(`✅ Saved: ${filepath}`);
+                }
+
+                allEvents.push(...events);
+            } catch (e: any) {
+                console.error(`[${scraper.name}] Error:`, e.message || e);
+            }
+        }
+
+        // Save combined Excel
+        if (allEvents.length > 0) {
+            const data = eventsToExcelData(allEvents);
+            const ws = XLSX.utils.json_to_sheet(data);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'Tüm Etkinlikler');
+
+            const filename = `Tum_Etkinlikler_${timestamp}.xlsx`;
+            const filepath = path.join(outputDir, filename);
+            XLSX.writeFile(wb, filepath);
+            console.log(`\n📦 Combined: ${filepath}`);
+        }
+
+        console.log('\n' + '='.repeat(60));
+        console.log(`✅ TAMAMLANDI: ${allEvents.length} etkinlik Excel'e aktarıldı`);
+        console.log(`📂 Dosyalar: ${outputDir}`);
+        console.log('='.repeat(60));
+
+    } catch (e: any) {
+        console.error('Fatal error:', e.message || e);
+    } finally {
+        // Always close browser to release resources
+        try {
+            await closeBrowser();
+        } catch (e) {
+            // Ignore browser close errors
+        }
+        process.exit(0);
     }
-
-    // Save combined Excel
-    if (allEvents.length > 0) {
-        const data = eventsToExcelData(allEvents);
-        const ws = XLSX.utils.json_to_sheet(data);
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, 'Tüm Etkinlikler');
-
-        const filename = `Tum_Etkinlikler_${timestamp}.xlsx`;
-        const filepath = path.join(outputDir, filename);
-        XLSX.writeFile(wb, filepath);
-        console.log(`\n📦 Combined: ${filepath}`);
-    }
-
-    console.log('\n' + '='.repeat(60));
-    console.log(`✅ TAMAMLANDI: ${allEvents.length} etkinlik Excel'e aktarıldı`);
-    console.log(`📂 Dosyalar: ${outputDir}`);
-    console.log('='.repeat(60));
-
-    await closeBrowser();
-    process.exit(0);
 }
 
 scrapeToExcel();
+
