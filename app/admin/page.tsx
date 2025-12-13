@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
-import { Trash2, Edit, Upload, ImageIcon, MapPin, Calendar, Check, AlertTriangle, Ban, Music, Inbox, List, Phone, Mail, User, FileSpreadsheet, Download, Plus, Search, Info, Activity, X, ExternalLink, Clock, Copy } from 'lucide-react'
+import { Trash2, Edit, Upload, ImageIcon, MapPin, Calendar, Check, AlertTriangle, Ban, Music, Inbox, List, Phone, Mail, User, FileSpreadsheet, Download, Plus, Search, Info, Activity, X, ExternalLink, Clock, Copy, Link as LinkIcon } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { Venue, Organizer } from '@/lib/types'
 import Link from 'next/link'
@@ -54,6 +54,8 @@ export default function Admin() {
   // Filter state
   const [showPendingOnly, setShowPendingOnly] = useState(false)
   const [showPastEvents, setShowPastEvents] = useState(false)
+  const [linkImportUrl, setLinkImportUrl] = useState('')
+  const [linkImportLoading, setLinkImportLoading] = useState(false)
 
   useEffect(() => {
     fetchEvents()
@@ -548,6 +550,61 @@ export default function Admin() {
           {/* EVENTS TAB */}
           {activeTab === 'events' && (
             <div className="space-y-8 animate-in fade-in">
+
+              {/* --- LINK IMPORT SECTION --- */}
+              <div className="bg-blue-50 dark:bg-blue-900/20 p-6 rounded-2xl shadow border border-blue-100 dark:border-blue-800">
+                <h3 className="font-bold text-blue-800 dark:text-blue-300 mb-3 flex items-center gap-2"><LinkIcon size={20} /> Link ile Hızlı Ekle</h3>
+                <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">Biletinial linkini yapıştırın, etkinlik bilgilerini otomatik çekeceğiz.</p>
+                <div className="flex gap-2">
+                  <input
+                    type="url"
+                    value={linkImportUrl}
+                    onChange={(e) => setLinkImportUrl(e.target.value)}
+                    placeholder="https://biletinial.com/tr-tr/tiyatro/..."
+                    className="flex-1 border p-3 rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700"
+                  />
+                  <button
+                    type="button"
+                    disabled={linkImportLoading || !linkImportUrl}
+                    onClick={async () => {
+                      if (!linkImportUrl) return alert('Link girin!')
+                      setLinkImportLoading(true)
+                      try {
+                        const res = await fetch('/api/scrape-link', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ url: linkImportUrl })
+                        })
+                        const json = await res.json()
+                        if (json.success && json.data) {
+                          const d = json.data
+                          setFormData(prev => ({
+                            ...prev,
+                            title: d.title || prev.title,
+                            description: d.description || prev.description,
+                            category: d.category || prev.category,
+                            image_url: d.image_url || prev.image_url,
+                            ticket_url: d.ticket_url || linkImportUrl,
+                            rules: Array.isArray(d.rules) ? d.rules.join(' | ') : (d.rules || prev.rules)
+                          }))
+                          alert(`✅ Bilgiler çekildi!\n\nMekanlar: ${d.venues?.join(', ') || 'Bulunamadı'}\nSüre: ${d.duration || 'Belirtilmemiş'}\n\nLütfen tarih ve mekan bilgilerini manuel girin.`)
+                          setLinkImportUrl('')
+                        } else {
+                          alert('Hata: ' + (json.error || 'Bilgiler çekilemedi.'))
+                        }
+                      } catch (e: any) {
+                        alert('Hata: ' + e.message)
+                      } finally {
+                        setLinkImportLoading(false)
+                      }
+                    }}
+                    className="bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+                  >
+                    {linkImportLoading ? 'Çekiliyor...' : <><ExternalLink size={16} /> Çek</>}
+                  </button>
+                </div>
+              </div>
+
               {/* --- FORM SECTION --- */}
               <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
                 <div className={`${editingId ? 'bg-yellow-500' : 'bg-brand'} p-4 text-white text-center transition-colors flex justify-between items-center px-6`}>
