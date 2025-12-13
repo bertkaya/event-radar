@@ -11,6 +11,7 @@
 body {
   color: rgb(var(--foreground-rgb));
   background: rgb(var(--background-start-rgb));
+  -webkit-tap-highlight-color: transparent;
 }
 
 /* Harita Marker Stili */

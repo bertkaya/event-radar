@@ -666,7 +666,7 @@ END:VCALENDAR`;
               const isFav = favorites.includes(event.id);
               const isSoldOut = event.sold_out;
               return (
-                <div key={event.id} onClick={() => setSelectedEvent(event)} className={`group bg-white dark:bg-gray-800 rounded-3xl cursor-pointer transition-all border border-gray-100 dark:border-gray-700 relative overflow-hidden flex flex-row md:flex-col items-stretch md:items-stretch h-32 md:h-auto hover:shadow-lg hover:border-brand/30 ${!event.image_url ? 'h-auto' : ''}`}>
+                <div key={event.id} onClick={() => setSelectedEvent(event)} className={`group bg-white dark:bg-gray-800 rounded-3xl cursor-pointer transition-all border border-gray-100 dark:border-gray-700 relative overflow-hidden flex flex-row md:flex-col items-stretch md:items-stretch h-32 md:h-auto hover:shadow-lg hover:border-brand/30 outline-none focus:outline-none focus:ring-0 ${!event.image_url ? 'h-auto' : ''}`}>
                   {event.image_url && (
                     <div className="w-32 h-full md:w-full md:h-40 bg-brand shrink-0 relative flex items-center justify-center overflow-hidden">
                       <img src={event.image_url} alt={event.title} className={`w-full h-full object-cover ${isSoldOut ? 'grayscale' : ''}`} />
