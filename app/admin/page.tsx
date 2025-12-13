@@ -121,22 +121,51 @@ export default function Admin() {
         if (!confirm(`${data.length} etkinlik yüklenecek. Onay?`)) return;
 
         setLoading(true);
-        const formattedData = data.map((row: any) => ({
-          title: row.Baslik || "Başlıksız",
-          venue_name: row.Mekan || "Belirsiz",
-          address: row.Adres || "",
-          category: row.Kategori || "Müzik",
-          price: row.Fiyat || "",
-          start_time: row.Baslangic ? new Date(row.Baslangic).toISOString() : new Date().toISOString(),
-          end_time: row.Bitis ? new Date(row.Bitis).toISOString() : null,
-          lat: parseFloat(row.Enlem || 0),
-          lng: parseFloat(row.Boylam || 0),
-          description: row.Aciklama || "",
-          image_url: row.Resim || "",
-          ticket_url: row.Bilet || "",
-          rules: row.Kurallar || "",
-          is_approved: true, sold_out: false
-        }));
+        const formattedData = data.map((row: any) => {
+          // Parse Rules
+          let rules = [];
+          if (row.Kurallar) {
+            rules = row.Kurallar.toString().split(' | ').filter((r: string) => r.trim() !== '');
+          }
+
+          // Parse Ticket Details from Price column if complex format
+          // Format expected: "Tam: 100 TL | Öğrenci: 80 TL"
+          let ticketDetails: any[] = [];
+          let price = row.Fiyat ? row.Fiyat.toString() : "";
+
+          if (price.includes('|') || price.includes(':')) {
+            const parts = price.split('|');
+            parts.forEach((p: string) => {
+              const [name, pVal] = p.split(':').map((s: string) => s.trim());
+              if (name && pVal) {
+                ticketDetails.push({ name, price: pVal });
+              }
+            });
+            // If ticket details found, keep main price as lowest or first
+            if (ticketDetails.length > 0) {
+              price = ticketDetails[0].price; // Use first price as display price
+            }
+          }
+
+          return {
+            title: row.Baslik || "Başlıksız",
+            venue_name: row.Mekan || "Belirsiz",
+            address: row.Adres || "",
+            category: row.Kategori || "Müzik",
+            price: price,
+            start_time: row.Baslangic ? new Date(row.Baslangic).toISOString() : new Date().toISOString(),
+            end_time: row.Bitis ? new Date(row.Bitis).toISOString() : null,
+            lat: parseFloat(row.Enlem || 0),
+            lng: parseFloat(row.Boylam || 0),
+            description: row.Aciklama || "",
+            image_url: row.Resim || "",
+            ticket_url: row.Bilet || "",
+            rules: rules,
+            ticket_details: ticketDetails,
+            tags: row.Tags ? row.Tags.split(',').map((t: string) => t.trim()) : [],
+            is_approved: true, sold_out: false
+          };
+        });
 
         const { error } = await supabase.from('events').insert(formattedData);
         if (error) throw error;
