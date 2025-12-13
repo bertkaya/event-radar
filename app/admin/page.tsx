@@ -56,6 +56,9 @@ export default function Admin() {
   const [showPastEvents, setShowPastEvents] = useState(false)
   const [linkImportUrl, setLinkImportUrl] = useState('')
   const [linkImportLoading, setLinkImportLoading] = useState(false)
+  const [scrapedSessions, setScrapedSessions] = useState<any[]>([])
+  const [selectedSessions, setSelectedSessions] = useState<number[]>([])
+  const [scrapedEventData, setScrapedEventData] = useState<any>(null)
 
   useEffect(() => {
     fetchEvents()
@@ -554,7 +557,7 @@ export default function Admin() {
               {/* --- LINK IMPORT SECTION --- */}
               <div className="bg-blue-50 dark:bg-blue-900/20 p-6 rounded-2xl shadow border border-blue-100 dark:border-blue-800">
                 <h3 className="font-bold text-blue-800 dark:text-blue-300 mb-3 flex items-center gap-2"><LinkIcon size={20} /> Link ile Hızlı Ekle</h3>
-                <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">Biletinial linkini yapıştırın, etkinlik bilgilerini otomatik çekeceğiz.</p>
+                <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">Biletinial linkini yapıştırın, etkinlik bilgilerini ve seansları otomatik çekeceğiz.</p>
                 <div className="flex gap-2">
                   <input
                     type="url"
@@ -569,6 +572,8 @@ export default function Admin() {
                     onClick={async () => {
                       if (!linkImportUrl) return alert('Link girin!')
                       setLinkImportLoading(true)
+                      setScrapedSessions([])
+                      setSelectedSessions([])
                       try {
                         const res = await fetch('/api/scrape-link', {
                           method: 'POST',
@@ -578,6 +583,7 @@ export default function Admin() {
                         const json = await res.json()
                         if (json.success && json.data) {
                           const d = json.data
+                          setScrapedEventData(d)
                           setFormData(prev => ({
                             ...prev,
                             title: d.title || prev.title,
@@ -587,8 +593,12 @@ export default function Admin() {
                             ticket_url: d.ticket_url || linkImportUrl,
                             rules: Array.isArray(d.rules) ? d.rules.join(' | ') : (d.rules || prev.rules)
                           }))
-                          alert(`✅ Bilgiler çekildi!\n\nMekanlar: ${d.venues?.join(', ') || 'Bulunamadı'}\nSüre: ${d.duration || 'Belirtilmemiş'}\n\nLütfen tarih ve mekan bilgilerini manuel girin.`)
-                          setLinkImportUrl('')
+                          if (d.sessions && d.sessions.length > 0) {
+                            setScrapedSessions(d.sessions)
+                            alert(`✅ ${d.sessions.length} seans bulundu! Aşağıdan seçim yapabilirsiniz.`)
+                          } else {
+                            alert(`✅ Bilgiler çekildi! Seans bulunamadı, manuel girin.`)
+                          }
                         } else {
                           alert('Hata: ' + (json.error || 'Bilgiler çekilemedi.'))
                         }
@@ -603,6 +613,99 @@ export default function Admin() {
                     {linkImportLoading ? 'Çekiliyor...' : <><ExternalLink size={16} /> Çek</>}
                   </button>
                 </div>
+
+                {/* Sessions Table */}
+                {scrapedSessions.length > 0 && (
+                  <div className="mt-4 bg-white dark:bg-gray-800 rounded-xl border dark:border-gray-700 overflow-hidden">
+                    <div className="p-3 bg-gray-100 dark:bg-gray-700 flex justify-between items-center">
+                      <span className="font-bold text-sm">Bulunan Seanslar ({scrapedSessions.length})</span>
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => setSelectedSessions(scrapedSessions.map((_, i) => i))} className="text-xs bg-gray-200 dark:bg-gray-600 px-2 py-1 rounded">Tümünü Seç</button>
+                        <button type="button" onClick={() => setSelectedSessions([])} className="text-xs bg-gray-200 dark:bg-gray-600 px-2 py-1 rounded">Temizle</button>
+                      </div>
+                    </div>
+                    <div className="max-h-60 overflow-y-auto">
+                      <table className="w-full text-xs">
+                        <thead className="bg-gray-50 dark:bg-gray-900 sticky top-0">
+                          <tr>
+                            <th className="p-2 text-left w-8"></th>
+                            <th className="p-2 text-left">Şehir</th>
+                            <th className="p-2 text-left">Tarih</th>
+                            <th className="p-2 text-left">Saat</th>
+                            <th className="p-2 text-left">Mekan</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {scrapedSessions.map((session: any, idx: number) => (
+                            <tr key={idx} className={`border-t dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer ${selectedSessions.includes(idx) ? 'bg-blue-50 dark:bg-blue-900/30' : ''}`}
+                              onClick={() => {
+                                if (selectedSessions.includes(idx)) {
+                                  setSelectedSessions(selectedSessions.filter(i => i !== idx))
+                                } else {
+                                  setSelectedSessions([...selectedSessions, idx])
+                                }
+                              }}>
+                              <td className="p-2"><input type="checkbox" checked={selectedSessions.includes(idx)} readOnly className="w-4 h-4" /></td>
+                              <td className="p-2 font-bold">{session.city}</td>
+                              <td className="p-2">{session.date}</td>
+                              <td className="p-2">{session.time}</td>
+                              <td className="p-2">{session.venue}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    {selectedSessions.length > 0 && (
+                      <div className="p-3 bg-green-50 dark:bg-green-900/20 border-t dark:border-gray-700">
+                        <button
+                          type="button"
+                          disabled={loading}
+                          onClick={async () => {
+                            if (pin !== '1823') return alert('PIN gerekli!')
+                            if (!scrapedEventData) return alert('Önce link çekin!')
+                            setLoading(true)
+                            try {
+                              const eventsToCreate = selectedSessions.map(idx => {
+                                const session = scrapedSessions[idx]
+                                return {
+                                  title: scrapedEventData.title,
+                                  description: scrapedEventData.description || '',
+                                  category: scrapedEventData.category || 'Diğer',
+                                  price: '',
+                                  venue_name: session.venue,
+                                  address: '',
+                                  start_time: new Date(`${session.date.split('.').reverse().join('-')}T${session.time}`).toISOString(),
+                                  end_time: null,
+                                  lat: 0, lng: 0,
+                                  image_url: scrapedEventData.image_url || '',
+                                  ticket_url: scrapedEventData.ticket_url || '',
+                                  rules: scrapedEventData.rules || [],
+                                  is_approved: true,
+                                  sold_out: false
+                                }
+                              })
+                              const { error } = await supabase.from('events').insert(eventsToCreate)
+                              if (error) throw error
+                              alert(`✅ ${eventsToCreate.length} etkinlik eklendi!`)
+                              setScrapedSessions([])
+                              setSelectedSessions([])
+                              setScrapedEventData(null)
+                              setLinkImportUrl('')
+                              fetchEvents()
+                            } catch (e: any) {
+                              alert('Hata: ' + e.message)
+                            } finally {
+                              setLoading(false)
+                            }
+                          }}
+                          className="w-full bg-green-600 text-white py-2 rounded-lg font-bold hover:bg-green-700 disabled:opacity-50"
+                        >
+                          {loading ? 'Ekleniyor...' : `✅ Seçili ${selectedSessions.length} Seansı Ekle`}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* --- FORM SECTION --- */}
