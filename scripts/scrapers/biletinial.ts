@@ -61,34 +61,37 @@ export const BiletinialScraper: Scraper = {
                 // Find event links on the category page
                 const eventLinks = await page.evaluate(() => {
                     const links: string[] = [];
+                    const categoryPaths = ['/tiyatro/', '/muzik/', '/spor/', '/kids/', '/opera-bale/', '/stand-up/', '/eglence/', '/egitim/', '/seminer/', '/etkinlik/', '/gosteri/'];
 
-                    // Method 1: Event cards with links
-                    document.querySelectorAll('a[href*="/etkinlik/"], a[href*="/activity/"], a[href*="/event/"]').forEach(a => {
+                    // Get all links on the page
+                    document.querySelectorAll('a[href*="biletinial.com"]').forEach(a => {
                         const href = (a as HTMLAnchorElement).href;
-                        if (href && !href.includes('#') && !links.includes(href)) {
-                            // Filter out category pages
-                            if (!href.endsWith('/tiyatro/') && !href.endsWith('/muzik/') &&
-                                !href.endsWith('/spor/') && !href.endsWith('/kids/') &&
-                                !href.endsWith('/etkinlik/') && !href.includes('/etkinlikleri/')) {
-                                links.push(href);
+                        if (!href || href.includes('#')) return;
+
+                        // Check if it's an event link in any category
+                        for (const catPath of categoryPaths) {
+                            if (href.includes(catPath)) {
+                                // Get the path after the category
+                                const parts = href.split(catPath);
+                                if (parts.length > 1 && parts[1] && parts[1].length > 0) {
+                                    // It has something after category path = it's an event
+                                    const eventSlug = parts[1].split('/')[0].split('?')[0];
+                                    if (eventSlug && eventSlug.length > 3 && !eventSlug.includes('biletleri')) {
+                                        if (!links.includes(href)) {
+                                            links.push(href);
+                                        }
+                                    }
+                                }
+                                break;
                             }
                         }
                     });
 
-                    // Method 2: Event cards with data attributes
-                    document.querySelectorAll('[data-url*="/etkinlik/"], [data-href*="/etkinlik/"]').forEach(el => {
+                    // Also try data attributes
+                    document.querySelectorAll('[data-url], [data-href]').forEach(el => {
                         const url = el.getAttribute('data-url') || el.getAttribute('data-href');
-                        if (url && !links.includes(url)) {
+                        if (url && url.includes('biletinial.com') && !links.includes(url)) {
                             links.push(url.startsWith('http') ? url : 'https://biletinial.com' + url);
-                        }
-                    });
-
-                    // Method 3: All card-like elements with hrefs
-                    document.querySelectorAll('.event-card a, .card a, [class*="event-item"] a, [class*="etkinlik"] a').forEach(a => {
-                        const href = (a as HTMLAnchorElement).href;
-                        if (href && href.includes('biletinial.com') && !links.includes(href) &&
-                            (href.includes('/etkinlik/') || href.includes('/activity/'))) {
-                            links.push(href);
                         }
                     });
 
@@ -97,8 +100,8 @@ export const BiletinialScraper: Scraper = {
 
                 console.log(`[Biletinial] Found ${eventLinks.length} event links in ${catInfo.category}`);
 
-                // Process each event (limit to 20 per category for speed)
-                for (const eventUrl of eventLinks.slice(0, 20)) {
+                // Process each event (limit to 25 per category for speed)
+                for (const eventUrl of eventLinks.slice(0, 25)) {
                     if (processedUrls.has(eventUrl)) continue;
                     processedUrls.add(eventUrl);
 
@@ -108,7 +111,7 @@ export const BiletinialScraper: Scraper = {
                         console.log(`[Biletinial] ✓ Scraped: ${eventData.title}`);
                     }
 
-                    await sleep(1000); // Reduced delay for speed
+                    await sleep(800); // Reduced delay for speed
                 }
 
             } catch (e) {
