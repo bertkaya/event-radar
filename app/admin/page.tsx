@@ -587,7 +587,21 @@ export default function Admin() {
                           </div>
 
                           {formData.venue_mode === 'existing' ? (
-                            <select name="venue_id" value={formData.venue_id} onChange={handleChange} className="w-full border p-3 rounded-lg dark:bg-gray-700 dark:border-gray-600">
+                            <select name="venue_id" value={formData.venue_id} onChange={(e) => {
+                              const selectedVenue = venues.find(v => v.id === parseInt(e.target.value));
+                              if (selectedVenue) {
+                                setFormData({
+                                  ...formData,
+                                  venue_id: e.target.value,
+                                  venue_name: selectedVenue.name,
+                                  address: selectedVenue.address || '',
+                                  lat: selectedVenue.lat?.toString() || '',
+                                  lng: selectedVenue.lng?.toString() || ''
+                                });
+                              } else {
+                                setFormData({ ...formData, venue_id: e.target.value });
+                              }
+                            }} className="w-full border p-3 rounded-lg dark:bg-gray-700 dark:border-gray-600">
                               <option value="">-- Mekan Seç --</option>
                               {venues.map(v => <option key={v.id} value={v.id}>{v.name} ({v.address?.slice(0, 20)}...)</option>)}
                             </select>
