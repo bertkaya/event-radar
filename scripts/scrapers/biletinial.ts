@@ -48,7 +48,7 @@ export const BiletinialScraper: Scraper = {
 
             try {
                 // Navigate with popup handling
-                await safeNavigate(page, catInfo.url, { waitUntil: 'networkidle2' }); // Use networkidle2 for initial load
+                await safeNavigate(page, catInfo.url); // Use networkidle2 for initial load
                 await dismissPopups(page); // Dismiss popups after initial load
                 await sleep(2000);
 
