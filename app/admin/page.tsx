@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
-import { Trash2, Edit, Upload, ImageIcon, MapPin, Calendar, Check, AlertTriangle, Ban, Music, Inbox, List, Phone, Mail, User, FileSpreadsheet, Download, Plus, Search, Info, Activity, X, ExternalLink, Clock } from 'lucide-react'
+import { Trash2, Edit, Upload, ImageIcon, MapPin, Calendar, Check, AlertTriangle, Ban, Music, Inbox, List, Phone, Mail, User, FileSpreadsheet, Download, Plus, Search, Info, Activity, X, ExternalLink, Clock, Copy } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { Venue, Organizer } from '@/lib/types'
 import Link from 'next/link'
@@ -267,6 +267,43 @@ export default function Admin() {
       ai_mood: event.ai_mood || ''
     })
     window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  // Copy event for duplication
+  const handleCopyEvent = (event: any) => {
+    const start = new Date(event.start_time)
+    const end = event.end_time ? new Date(event.end_time) : null
+
+    setFormData({
+      title: event.title + ' (Kopya)',
+      venue_mode: 'existing',
+      venue_id: '',
+      venue_name: '',
+      address: '',
+      category: event.category,
+      price: event.price,
+      date: '',
+      time: start.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', hour12: false }),
+      end_date: '',
+      end_time: end ? end.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', hour12: false }) : '',
+      lat: '',
+      lng: '',
+      description: event.description || '',
+      maps_url: '',
+      image_url: event.image_url || '',
+      ticket_url: event.ticket_url || '',
+      media_url: event.media_url || '',
+      sold_out: false,
+      rules: event.rules || '',
+      tags: event.tags ? event.tags.join(', ') : '',
+      organizer_id: event.organizer_id?.toString() || '',
+      is_single_day: !event.end_time || (new Date(event.start_time).toDateString() === new Date(event.end_time).toDateString()),
+      ticket_details: event.ticket_details || [],
+      ai_mood: event.ai_mood || ''
+    })
+    setEditingId(null) // Not editing, creating new
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+    alert('✅ Etkinlik kopyalandı! Yeni tarih ve mekan girerek kaydedin.')
   }
 
   const handleCancelEdit = () => { setEditingId(null); resetForm(); }
@@ -732,8 +769,9 @@ export default function Admin() {
                       <div className="flex gap-2 w-full md:w-auto justify-end">
                         {event.sold_out && <span className="px-2 py-1 bg-red-100 text-red-700 rounded text-xs font-bold">TÜKENDİ</span>}
                         {!event.is_approved && <button onClick={() => handleApprove(event.id)} className="px-3 py-1 bg-green-600 text-white rounded text-xs font-bold hover:bg-green-700">ONAYLA</button>}
-                        <button onClick={() => handleEditClick(event)} className="p-2 text-blue-600 bg-blue-50 dark:bg-blue-900/30 rounded hover:bg-blue-100"><Edit size={16} /></button>
-                        <button onClick={() => handleDelete(event.id)} className="p-2 text-red-600 bg-red-50 dark:bg-red-900/30 rounded hover:bg-red-100"><Trash2 size={16} /></button>
+                        <button onClick={() => handleCopyEvent(event)} className="p-2 text-green-600 bg-green-50 dark:bg-green-900/30 rounded hover:bg-green-100" title="Kopyala"><Copy size={16} /></button>
+                        <button onClick={() => handleEditClick(event)} className="p-2 text-blue-600 bg-blue-50 dark:bg-blue-900/30 rounded hover:bg-blue-100" title="Düzenle"><Edit size={16} /></button>
+                        <button onClick={() => handleDelete(event.id)} className="p-2 text-red-600 bg-red-50 dark:bg-red-900/30 rounded hover:bg-red-100" title="Sil"><Trash2 size={16} /></button>
                       </div>
                     </div>
                   ))}
