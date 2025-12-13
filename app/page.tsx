@@ -487,9 +487,9 @@ END:VCALENDAR`;
 
       {selectedEvent && (
         <div className="fixed inset-0 z-[2000] flex items-end md:items-center justify-center">
-          <div className="absolute inset-0 bg-black/60 transition-opacity" onClick={() => setSelectedEvent(null)}></div>
-          <div className="bg-white dark:bg-gray-900 w-full md:w-[500px] md:rounded-3xl rounded-t-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in slide-in-from-bottom-5 duration-300">
-            <button onClick={() => setSelectedEvent(null)} className="absolute top-4 right-4 z-30 bg-black/50 hover:bg-black text-white p-2 rounded-full backdrop-blur transition"><X size={24} /></button>
+          <div className="absolute inset-0 z-[1] bg-black/60" onClick={() => setSelectedEvent(null)}></div>
+          <div onClick={(e) => e.stopPropagation()} className="bg-white dark:bg-gray-900 w-full md:w-[500px] md:rounded-3xl rounded-t-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] relative z-[2]">
+            <button onClick={() => setSelectedEvent(null)} className="absolute top-4 right-4 z-[3] bg-black/50 hover:bg-black text-white p-2 rounded-full transition"><X size={24} /></button>
 
             <div className="h-64 md:h-72 bg-brand relative shrink-0 flex items-center justify-center overflow-hidden">
               {selectedEvent.image_url ? (
