@@ -221,7 +221,7 @@ async function scrapeEventDetail(browser: any, url: string, category: string): P
 
         // Normalize dates
         const startTime = normalizeDate(eventInfo.startDateMeta || '') || new Date().toISOString();
-        const endTime = eventInfo.endDateMeta ? normalizeDate(eventInfo.endDateMeta) : null;
+        const endTime = eventInfo.endDateMeta ? (normalizeDate(eventInfo.endDateMeta) || undefined) : undefined;
 
         const event: Event = {
             title: eventInfo.title,
