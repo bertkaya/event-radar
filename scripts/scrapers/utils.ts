@@ -107,44 +107,93 @@ export const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 // --- Popup Handling ---
 export async function dismissPopups(page: Page) {
-    // Generic selectors for Cookies, Newsletters, etc.
+    // Comprehensive popup/cookie selectors for Turkish ticket sites
     const selectors = [
-        '#onetrust-accept-btn-handler', // Common OneTrust
-        '.cc-btn.cc-dismiss',           // Common CookieConsent
+        // OneTrust (very common)
+        '#onetrust-accept-btn-handler',
+        '#onetrust-pc-btn-handler',
+        '.onetrust-close-btn-handler',
+        // Generic cookie consent
+        '.cc-btn.cc-dismiss',
+        '.cc-allow',
         'button[class*="cookie"][class*="accept"]',
+        'button[class*="cookie"][class*="kabul"]',
+        '[class*="cookie-accept"]',
+        '[class*="cookieAccept"]',
+        // Close buttons
         'button[class*="close"]',
         '[aria-label="Close"]',
         '[aria-label="Kapat"]',
         '.modal-close',
         '.popup-close',
-        // Specific text buttons often used in TR
-        'xpath///button[contains(text(), "Kabul Et")]',
-        'xpath///button[contains(text(), "Tamam")]',
-        'xpath///button[contains(text(), "Anladım")]'
+        '.close-btn',
+        '.btn-close',
+        // Biletix specific
+        '.bx-popup-close',
+        '.bx-modal-close',
+        '[class*="dismiss"]',
+        // Passo specific
+        '.passo-popup-close',
+        '.modal-backdrop + .modal .close',
+        // Newsletter/notification popups
+        '[class*="newsletter"] button[class*="close"]',
+        '[class*="notification"] button[class*="close"]',
+        // Generic Turkish text buttons
+        'button:has-text("Kabul Et")',
+        'button:has-text("Kabul Ediyorum")',
+        'button:has-text("Tamam")',
+        'button:has-text("Anladım")',
+        'button:has-text("Kapat")',
+        'button:has-text("Devam")',
+        'button:has-text("Onayla")',
+        // GDPR/KVKK
+        '[class*="gdpr"] button',
+        '[class*="kvkk"] button[class*="accept"]'
     ];
 
-    for (const sel of selectors) {
-        try {
-            if (sel.startsWith('xpath/')) {
-                const xpath = sel.replace('xpath/', '');
-                const elements = await page.$$(`xpath/${xpath}`);
-                if (elements.length > 0) {
-                    await (elements[0] as any).click();
-                    console.log('Dismissed popup (XPath):', xpath);
-                    await sleep(500); // Wait for animation
+    // Run multiple passes as some popups appear after others close
+    for (let pass = 0; pass < 3; pass++) {
+        for (const sel of selectors) {
+            try {
+                // Handle :has-text pseudo selector
+                if (sel.includes(':has-text')) {
+                    const textMatch = sel.match(/:has-text\("(.+)"\)/);
+                    if (textMatch) {
+                        const text = textMatch[1];
+                        const buttons = await page.$$('button');
+                        for (const btn of buttons) {
+                            const btnText = await btn.evaluate(el => el.textContent?.trim());
+                            if (btnText && btnText.includes(text)) {
+                                await btn.click().catch(() => { });
+                                await sleep(300);
+                            }
+                        }
+                    }
+                } else {
+                    const el = await page.$(sel);
+                    if (el) {
+                        const isVisible = await el.isVisible().catch(() => false);
+                        if (isVisible) {
+                            await el.click().catch(() => { });
+                            console.log(`[Popup] Dismissed: ${sel}`);
+                            await sleep(300);
+                        }
+                    }
                 }
-            } else {
-                const el = await page.$(sel);
-                if (el && await el.isVisible()) {
-                    await el.click();
-                    console.log('Dismissed popup (Selector):', sel);
-                    await sleep(500);
-                }
+            } catch (e) {
+                // Ignore - popup not present
             }
-        } catch (e) {
-            // Ignore errors, just trying to click
         }
+        await sleep(500);
     }
+}
+
+// Wait for navigation and dismiss popups
+export async function safeNavigate(page: Page, url: string, timeout = 60000) {
+    await page.goto(url, { waitUntil: 'networkidle2', timeout });
+    await sleep(2000); // Wait for JS to load
+    await dismissPopups(page);
+    await sleep(500);
 }
 
 export function parsePrice(priceStr: string | undefined): number | null {

@@ -1,185 +1,251 @@
 
 import { Scraper, Event, TicketDetail } from './types.js';
-import { getBrowser, normalizeDate, sleep, dismissPopups } from './utils.js';
-import { Page } from 'puppeteer';
+import { getBrowser, normalizeDate, sleep, dismissPopups, safeNavigate } from './utils.js';
+
+// All Passo category URLs with proper category mapping
+const PASSO_CATEGORIES = [
+    { url: 'https://www.passo.com.tr/tr/kategori/futbol-mac-biletleri/4615', category: 'Spor' },
+    { url: 'https://www.passo.com.tr/tr/kategori/muzik-konser-festival-biletleri/8615', category: 'Müzik' },
+    { url: 'https://www.passo.com.tr/tr/kategori/performans-sanatlari-tiyatro-dans-standup-muzikal-bilet/11615', category: 'Tiyatro' },
+    { url: 'https://www.passo.com.tr/tr/kategori/spor-basketbol-etkinlik-mac-biletleri/13615', category: 'Spor' },
+    { url: 'https://www.passo.com.tr/tr/kategori/muze-tarihi-mekan-saray-giris-biletleri/15615', category: 'Sanat' },
+    { url: 'https://www.passo.com.tr/tr/kategori/diger-etkinlik-biletleri/12615', category: 'Diğer' },
+];
 
 export const PassoScraper: Scraper = {
     name: 'Passo',
     async scrape(): Promise<Event[]> {
-        console.log('[Passo] Starting scrape...');
+        console.log('[Passo] Starting comprehensive scrape...');
         const browser = await getBrowser();
         const events: Event[] = [];
+        const processedUrls = new Set<string>();
 
-        // Create a new page for listing
-        const page = await browser.newPage();
+        for (const catInfo of PASSO_CATEGORIES) {
+            console.log(`\n[Passo] Category: ${catInfo.category} - ${catInfo.url}`);
+            const page = await browser.newPage();
 
-        try {
-            // 1. Listings - Multi Category
-            const categories = [
-                { name: 'Müzik', url: 'https://www.passo.com.tr/tr/kategori/muzik-konser-festival-biletleri/8615' },
-                { name: 'Sahne Sanatları', url: 'https://www.passo.com.tr/tr/kategori/sahne-sanatlari-biletleri/8617' },
-                { name: 'Spor', url: 'https://www.passo.com.tr/tr/kategori/spor-biletleri/8621' },
-                { name: 'Müze', url: 'https://www.passo.com.tr/tr/kategori/muze-biletleri/8619' }
-            ];
+            try {
+                // Navigate with popup handling
+                await safeNavigate(page, catInfo.url);
+                await sleep(3000); // Passo is heavy on JS
 
-            const allLinks = new Set<string>();
+                // Scroll to load more events
+                for (let i = 0; i < 4; i++) {
+                    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+                    await sleep(1500);
+                    await dismissPopups(page); // Check for popups after scroll
+                }
 
-            for (const cat of categories) {
-                console.log(`[Passo] Visiting Category: ${cat.name}...`);
-                try {
-                    await page.goto(cat.url, { waitUntil: 'networkidle2', timeout: 60000 });
-                    await dismissPopups(page); // Check for popups
+                // Find event cards/links
+                const eventLinks = await page.evaluate(() => {
+                    const links: string[] = [];
 
-                    // Delay
-                    await sleep(Math.random() * 2000 + 1000);
-
-                    // 2. Scroll to load items (Try 2 times)
-                    for (let i = 0; i < 2; i++) {
-                        await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-                        await sleep(1500);
-                    }
-
-                    // 3. Extract Event Links (Support both <a href> and <div data-link>)
-                    const links = await page.evaluate(() => {
-                        const anchorHrefs = Array.from(document.querySelectorAll('a[href*="/etkinlik/"]'))
-                            .map(a => (a as HTMLAnchorElement).href);
-
-                        const dataLinks = Array.from(document.querySelectorAll('[data-link]'))
-                            .map(el => el.getAttribute('data-link'))
-                            .filter((l): l is string => typeof l === 'string' && l.includes('/etkinlik/'));
-
-                        return [...new Set([...anchorHrefs, ...dataLinks])].filter(h => !h.includes('#'));
+                    // Standard anchor links
+                    document.querySelectorAll('a[href*="/etkinlik/"]').forEach(a => {
+                        const href = (a as HTMLAnchorElement).href;
+                        if (href && !href.includes('#') && !links.includes(href)) {
+                            links.push(href);
+                        }
                     });
 
-                    console.log(`[Passo] Found ${links.length} in ${cat.name}`);
-                    links.forEach(l => allLinks.add(l));
-
-                } catch (e) {
-                    console.error(`[Passo] Error visiting ${cat.name}:`, e);
-                }
-            }
-
-            const uniqueLinks = [...allLinks];
-            console.log(`[Passo] Found total ${uniqueLinks.length} unique events. Processing first 15...`);
-
-            // Close the listing page to save resources
-            await page.close();
-
-            // 4. Visit Detail Pages
-            // Process in serial to avoid overwhelming the browser/site
-            // Limit to 15
-            for (const url of uniqueLinks.slice(0, 15)) {
-                await sleep(Math.random() * 2000 + 1000); // Inter-request delay
-
-                console.log(`[Passo] Scraping detail: ${url}`);
-                const detailPage = await browser.newPage();
-                try {
-                    await detailPage.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
-
-                    // Extract Details
-                    const eventData = await detailPage.evaluate(() => {
-                        // Helper to get text safe
-                        const getText = (sel: string) => document.querySelector(sel)?.textContent?.trim() || '';
-                        const getMeta = (prop: string) => document.querySelector(`meta[property="${prop}"]`)?.getAttribute('content') || '';
-
-                        const title = document.querySelector('h1')?.textContent?.trim() || getMeta('og:title');
-
-                        // Date extraction is tricky on Passo, often in a specific div
-                        // Look for common date containers
-                        const dateText = document.querySelector('.date')?.textContent?.trim() ||
-                            document.querySelector('.event-date')?.textContent?.trim() || '';
-
-                        // Venue
-                        const venueName = document.querySelector('.place')?.textContent?.trim() ||
-                            document.querySelector('.event-venue')?.textContent?.trim() || '';
-
-                        // Description
-                        const description = document.querySelector('.event-info')?.innerHTML?.trim() ||
-                            document.querySelector('.description')?.innerHTML?.trim() || '';
-
-                        // Image
-                        const imageUrl = getMeta('og:image');
-
-                        // Rules
-                        // Look for "Kurallar" tab or section
-                        const ruleItems: string[] = [];
-                        const ruleLis = document.querySelectorAll('.rules li, .event-rules li');
-                        ruleLis.forEach(li => ruleItems.push(li.textContent?.trim() || ''));
-
-                        // Ticket Details (Pricing)
-                        // Often in a sidebar or specific table
-                        const tickets: { name: string, price: string, status?: string }[] = [];
-                        // This selector is a guess based on common patterns, Passo changes classes often
-                        const priceElements = document.querySelectorAll('.ticket-type-list .item, .price-category');
-                        priceElements.forEach(el => {
-                            const name = el.querySelector('.name')?.textContent?.trim() || 'General';
-                            const price = el.querySelector('.price')?.textContent?.trim() || '';
-                            if (price) tickets.push({ name, price });
-                        });
-
-                        return {
-                            title,
-                            dateText,
-                            venueName,
-                            description,
-                            imageUrl,
-                            ruleItems,
-                            tickets
-                        };
+                    // Cards with data-link attribute (Passo uses this)
+                    document.querySelectorAll('[data-link*="/etkinlik/"]').forEach(el => {
+                        const link = el.getAttribute('data-link');
+                        if (link) {
+                            const fullUrl = link.startsWith('http') ? link : 'https://www.passo.com.tr' + link;
+                            if (!links.includes(fullUrl)) links.push(fullUrl);
+                        }
                     });
 
-                    // Post-processing in Node context
-                    if (!eventData.title) {
-                        console.warn(`[Passo] Skipping ${url} - Title not found`);
-                        await detailPage.close();
-                        continue;
+                    // Event cards with onclick
+                    document.querySelectorAll('[onclick*="/etkinlik/"]').forEach(el => {
+                        const onclick = el.getAttribute('onclick') || '';
+                        const match = onclick.match(/\/etkinlik\/[^'"]+/);
+                        if (match) {
+                            const fullUrl = 'https://www.passo.com.tr' + match[0];
+                            if (!links.includes(fullUrl)) links.push(fullUrl);
+                        }
+                    });
+
+                    // Clickable divs that might be event cards
+                    document.querySelectorAll('.event-card, [class*="eventCard"], [class*="event-item"]').forEach(card => {
+                        const link = card.querySelector('a')?.href;
+                        if (link && link.includes('/etkinlik/') && !links.includes(link)) {
+                            links.push(link);
+                        }
+                    });
+
+                    return [...new Set(links)];
+                });
+
+                console.log(`[Passo] Found ${eventLinks.length} event links in ${catInfo.category}`);
+
+                // Process each event (limit to 10 per category)
+                for (const eventUrl of eventLinks.slice(0, 10)) {
+                    if (processedUrls.has(eventUrl)) continue;
+                    processedUrls.add(eventUrl);
+
+                    const eventData = await scrapeEventDetail(browser, eventUrl, catInfo.category);
+                    if (eventData) {
+                        events.push(eventData);
+                        console.log(`[Passo] ✓ Scraped: ${eventData.title}`);
                     }
 
-                    // Normalizing Date (Passo often has "23 Eyl 2025" or similar)
-                    // For now, we put the raw text in start_time if parsing fails, but interface wants ISO.
-                    // We need a robust Turkish date parser. 
-                    // Let's try basic ISO conversion if possible, or fallback.
-                    // Since we can't easily parse arbitrary Turkish dates without a library or complex logic,
-                    // we will default to current Year if missing, etc.
-                    // For this iteration, we'll try to find an ISO meta tag if possible.
-                    const metaDate = await detailPage.evaluate(() =>
-                        document.querySelector('meta[itemprop="startDate"]')?.getAttribute('content')
-                    );
-
-                    // Re-use normalizedate
-                    const startTime = normalizeDate(metaDate || '') || new Date().toISOString(); // Fallback to avoid breaking DB constraint if strict, but better to be empty? DB says generated? No, start_time is usually required.
-                    // Actually existing events often have start_time.
-                    // If we really can't parse it, we might skip or mark as 'Check Date'.
-
-                    const event: Event = {
-                        title: eventData.title,
-                        venue_name: eventData.venueName || 'Unknown Venue',
-                        start_time: startTime,
-                        description: eventData.description,
-                        image_url: eventData.imageUrl,
-                        source_url: url,
-                        category: 'Konser', // We scraped from Music
-                        rules: eventData.ruleItems,
-                        ticket_details: eventData.tickets,
-                        is_approved: false
-                    };
-
-                    events.push(event);
-
-                } catch (e) {
-                    console.error(`[Passo] Error scraping ${url}:`, e);
-                } finally {
-                    await detailPage.close();
+                    await sleep(2000); // Passo needs longer delays
                 }
-            }
 
-        } catch (e) {
-            console.error('[Passo] Global scrape error:', e);
+            } catch (e) {
+                console.error(`[Passo] Error in category ${catInfo.category}:`, e);
+            } finally {
+                await page.close();
+            }
         }
 
-        // We do NOT close the browser here, as the orchestrator might use it or we assume shared instance.
-        // Actually getBrowser returns a singleton. We can leave it open.
-
+        console.log(`\n[Passo] Total scraped: ${events.length} events`);
         return events;
     }
 };
+
+async function scrapeEventDetail(browser: any, url: string, category: string): Promise<Event | null> {
+    const page = await browser.newPage();
+
+    try {
+        await safeNavigate(page, url);
+        await sleep(2500);
+
+        // Extra popup check for Passo
+        await dismissPopups(page);
+
+        // Extract all event information
+        const eventInfo = await page.evaluate(() => {
+            const getText = (sel: string) => document.querySelector(sel)?.textContent?.trim() || '';
+            const getMeta = (prop: string) => document.querySelector(`meta[property="${prop}"]`)?.getAttribute('content') || '';
+
+            // Title
+            const title = document.querySelector('h1')?.textContent?.trim() ||
+                document.querySelector('.event-title')?.textContent?.trim() ||
+                document.querySelector('[class*="eventName"]')?.textContent?.trim() ||
+                getMeta('og:title');
+
+            // Description
+            const description = document.querySelector('.event-description')?.innerHTML?.trim() ||
+                document.querySelector('[class*="eventDetail"]')?.innerHTML?.trim() ||
+                document.querySelector('[class*="description"]')?.innerHTML?.trim() ||
+                getMeta('og:description') || '';
+
+            // Image (poster)
+            const imageUrl = getMeta('og:image') ||
+                document.querySelector('.event-poster img')?.getAttribute('src') ||
+                document.querySelector('[class*="eventImage"] img')?.getAttribute('src') ||
+                document.querySelector('[class*="poster"] img')?.getAttribute('src') || '';
+
+            // Venue
+            const venueName = document.querySelector('.venue-name')?.textContent?.trim() ||
+                document.querySelector('[class*="venueName"]')?.textContent?.trim() ||
+                document.querySelector('[class*="place"]')?.textContent?.trim() ||
+                document.querySelector('.event-venue')?.textContent?.trim() || '';
+
+            const address = document.querySelector('.venue-address')?.textContent?.trim() ||
+                document.querySelector('[class*="venueAddress"]')?.textContent?.trim() ||
+                document.querySelector('[class*="address"]')?.textContent?.trim() || '';
+
+            // Date/Time
+            const startDateMeta = document.querySelector('meta[itemprop="startDate"]')?.getAttribute('content');
+            const endDateMeta = document.querySelector('meta[itemprop="endDate"]')?.getAttribute('content');
+
+            const dateText = document.querySelector('.event-date')?.textContent?.trim() ||
+                document.querySelector('[class*="eventDate"]')?.textContent?.trim() ||
+                document.querySelector('[class*="date"]')?.textContent?.trim() || '';
+
+            // "Lütfen not edin" -> rules (Good to Know)
+            const rules: string[] = [];
+
+            // Look for "Lütfen not edin" or similar sections
+            document.querySelectorAll('[class*="note"] li, [class*="warning"] li, [class*="info"] li').forEach(li => {
+                const text = li.textContent?.trim();
+                if (text) rules.push(text);
+            });
+
+            // Also check for explicit rules section
+            const noteSection = document.querySelector('[class*="pleaseNote"], [class*="notes"], [class*="kurallar"]');
+            if (noteSection) {
+                noteSection.querySelectorAll('li, p').forEach(el => {
+                    const text = el.textContent?.trim();
+                    if (text && text.length > 5 && !rules.includes(text)) {
+                        rules.push(text);
+                    }
+                });
+            }
+
+            // Ticket prices
+            const ticketTypes: { name: string; price: string; status?: string }[] = [];
+
+            // Look for price tables/lists
+            document.querySelectorAll('.price-item, .ticket-type, [class*="priceRow"], [class*="ticketItem"]').forEach(row => {
+                const name = row.querySelector('.name, [class*="name"], [class*="category"]')?.textContent?.trim() || 'Standart';
+                const price = row.querySelector('.price, [class*="price"], [class*="amount"]')?.textContent?.trim() || '';
+                const status = row.querySelector('[class*="status"], [class*="available"]')?.textContent?.trim();
+                if (price && (price.includes('TL') || price.includes('₺'))) {
+                    ticketTypes.push({ name, price, status });
+                }
+            });
+
+            // Single price fallback
+            if (ticketTypes.length === 0) {
+                const priceEl = document.querySelector('[class*="eventPrice"], [class*="price"]:not(button)');
+                if (priceEl) {
+                    const price = priceEl.textContent?.trim();
+                    if (price && (price.includes('TL') || price.includes('₺'))) {
+                        ticketTypes.push({ name: 'Standart', price });
+                    }
+                }
+            }
+
+            return {
+                title,
+                description,
+                imageUrl,
+                venueName,
+                address,
+                startDateMeta,
+                endDateMeta,
+                dateText,
+                rules,
+                ticketTypes
+            };
+        });
+
+        if (!eventInfo.title) {
+            console.warn(`[Passo] No title found for ${url}`);
+            await page.close();
+            return null;
+        }
+
+        // Normalize dates
+        const startTime = normalizeDate(eventInfo.startDateMeta || '') || new Date().toISOString();
+        const endTime = eventInfo.endDateMeta ? normalizeDate(eventInfo.endDateMeta) : null;
+
+        const event: Event = {
+            title: eventInfo.title,
+            venue_name: eventInfo.venueName || 'Bilinmiyor',
+            address: eventInfo.address,
+            start_time: startTime,
+            end_time: endTime,
+            description: eventInfo.description,
+            image_url: eventInfo.imageUrl,
+            source_url: url,
+            category: category,
+            rules: eventInfo.rules,
+            ticket_details: eventInfo.ticketTypes,
+            is_approved: false
+        };
+
+        await page.close();
+        return event;
+
+    } catch (e) {
+        console.error(`[Passo] Error scraping ${url}:`, e);
+        await page.close();
+        return null;
+    }
+}
