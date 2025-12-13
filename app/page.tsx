@@ -75,6 +75,8 @@ export default function Home() {
   const [user, setUser] = useState<any>(null)
   const [copied, setCopied] = useState(false)
   const [venueForm, setVenueForm] = useState({ venue_name: '', contact_name: '', phone: '', email: '', message: '' })
+  const [showSuggestModal, setShowSuggestModal] = useState(false)
+  const [suggestForm, setSuggestForm] = useState({ title: '', event_url: '', notes: '', contact_email: '' })
 
   // Phase 3: User Engagement State
   const [followedVenues, setFollowedVenues] = useState<string[]>([])
@@ -197,13 +199,35 @@ export default function Home() {
     if (timeFilter !== 'all') {
       const today = new Date();
       const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
+
+      // Calculate next weekend (upcoming Saturday and Sunday)
+      const getNextWeekend = () => {
+        const now = new Date();
+        const dayOfWeek = now.getDay(); // 0=Sunday, 6=Saturday
+        let saturday, sunday;
+
+        if (dayOfWeek === 6) { // Today is Saturday
+          saturday = new Date(now);
+          sunday = new Date(now); sunday.setDate(now.getDate() + 1);
+        } else if (dayOfWeek === 0) { // Today is Sunday
+          saturday = new Date(now); saturday.setDate(now.getDate() - 1);
+          sunday = new Date(now);
+        } else { // Weekday - get next Saturday
+          const daysUntilSaturday = 6 - dayOfWeek;
+          saturday = new Date(now); saturday.setDate(now.getDate() + daysUntilSaturday);
+          sunday = new Date(saturday); sunday.setDate(saturday.getDate() + 1);
+        }
+        return { saturday, sunday };
+      };
+
       filtered = filtered.filter(e => {
         const eventDate = new Date(e.start_time);
-        const hour = eventDate.getHours();
-        if (hour < 18) return false;
         if (timeFilter === 'today') return eventDate.toDateString() === today.toDateString();
         if (timeFilter === 'tomorrow') return eventDate.toDateString() === tomorrow.toDateString();
-        if (timeFilter === 'weekend') { const day = eventDate.getDay(); return day === 0 || day === 6 || (day === 5 && hour >= 18); }
+        if (timeFilter === 'weekend') {
+          const { saturday, sunday } = getNextWeekend();
+          return eventDate.toDateString() === saturday.toDateString() || eventDate.toDateString() === sunday.toDateString();
+        }
         return true;
       });
     }
@@ -308,6 +332,20 @@ END:VCALENDAR`;
   }
 
   const openTicket = (e: any, url: string) => { e?.stopPropagation(); window.open(url, '_blank') }
+
+  // Submit event suggestion
+  const handleSuggestSubmit = async (e: any) => {
+    e.preventDefault();
+    if (!suggestForm.title) return alert('Etkinlik adı gerekli!');
+    const { error } = await supabase.from('event_suggestions').insert([suggestForm]);
+    if (!error) {
+      alert('✅ Öneriniz alındı! Geri bildiriminiz için teşekkürler.');
+      setShowSuggestModal(false);
+      setSuggestForm({ title: '', event_url: '', notes: '', contact_email: '' });
+    }
+    else { alert('Hata oluştu: ' + error.message); }
+  }
+
   const categories = ['Tümü', ...Array.from(new Set(allEvents.map(e => e.category)))]
   const handleLocate = () => { setTriggerLocate(true); setCurrentLocName("Konumum"); setTimeout(() => setTriggerLocate(false), 1000) }
   const handleSelectLocation = (loc: any) => {
@@ -397,6 +435,28 @@ END:VCALENDAR`;
         </div>
       )}
 
+      {/* SUGGEST EVENT MODAL */}
+      {showSuggestModal && (
+        <div className="fixed inset-0 z-[2100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white dark:bg-gray-800 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden">
+            <div className="p-6 border-b dark:border-gray-700 bg-brand text-white text-center relative">
+              <h3 className="font-black text-xl tracking-tight">ETKİNLİK ÖNER</h3>
+              <p className="text-xs opacity-90">Kaçırdığımız bir etkinlik mi var?</p>
+              <button onClick={() => setShowSuggestModal(false)} className="absolute top-4 right-4 text-white/80 hover:text-white"><X size={24} /></button>
+            </div>
+            <div className="p-6">
+              <form onSubmit={handleSuggestSubmit} className="space-y-3">
+                <input required placeholder="Etkinlik Adı *" className="w-full border p-3 rounded-lg dark:bg-gray-700 dark:border-gray-600" value={suggestForm.title} onChange={e => setSuggestForm({ ...suggestForm, title: e.target.value })} />
+                <input placeholder="Etkinlik Linki (bilet sitesi vb.)" className="w-full border p-3 rounded-lg dark:bg-gray-700 dark:border-gray-600" value={suggestForm.event_url} onChange={e => setSuggestForm({ ...suggestForm, event_url: e.target.value })} />
+                <textarea placeholder="Notlar (tarih, mekan vb.)" className="w-full border p-3 rounded-lg h-20 resize-none dark:bg-gray-700 dark:border-gray-600" value={suggestForm.notes} onChange={e => setSuggestForm({ ...suggestForm, notes: e.target.value })} />
+                <input placeholder="E-mail (opsiyonel)" className="w-full border p-3 rounded-lg dark:bg-gray-700 dark:border-gray-600" value={suggestForm.contact_email} onChange={e => setSuggestForm({ ...suggestForm, contact_email: e.target.value })} />
+                <button className="w-full bg-black text-white dark:bg-white dark:text-black py-3 rounded-xl font-bold">Etkinlik Öner</button>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* VENUE EVENTS MODAL */}
       {showVenueEventsModal && (
         <div className="fixed inset-0 z-[2200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
@@ -453,7 +513,17 @@ END:VCALENDAR`;
               )}
             </div>
 
-            <div className="mb-8 space-y-6">
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              <div>
+                <div className="flex justify-between items-start mb-2">
+                  <h2 className="font-black text-2xl text-gray-900 dark:text-white leading-tight">{selectedEvent.title}</h2>
+                  <span className="text-sm font-bold text-brand bg-brand/10 px-2 py-1 rounded shrink-0 ml-2">{selectedEvent.price}</span>
+                </div>
+                <div className="text-sm text-gray-500 flex items-center gap-2">
+                  <Calendar size={14} /> {formatDateRange(selectedEvent.start_time, selectedEvent.end_time)}
+                </div>
+              </div>
+
               <div>
                 <h3 className="font-bold text-gray-900 dark:text-white mb-2">Etkinlik Hakkında</h3>
                 <p className="text-gray-600 dark:text-gray-400 leading-relaxed whitespace-pre-line">{selectedEvent.description || 'Açıklama bulunmuyor.'}</p>
@@ -466,52 +536,38 @@ END:VCALENDAR`;
                 </div>
               )}
 
-              {/* Price (Ücretsiz) Toggle */}
-              <div className="bg-white dark:bg-gray-800 rounded-xl p-2 border border-gray-100 dark:border-gray-700 shadow-sm mb-4">
-                {selectedEvent.ticket_details && selectedEvent.ticket_details.length > 0 && (
-                  <div className="bg-gray-50 dark:bg-gray-900 p-4 rounded-xl border border-gray-100 dark:border-gray-700">
-                    <h3 className="font-bold text-gray-900 dark:text-gray-100 mb-3 flex items-center gap-2"><Ticket size={16} /> Bilet Seçenekleri</h3>
-                    <div className="space-y-2">
-                      {selectedEvent.ticket_details.map((t: any, idx: number) => (
-                        <div key={idx} className="flex justify-between items-center p-3 bg-white dark:bg-gray-800 rounded-lg shadow-sm">
-                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t.name}</span>
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-black text-brand">{t.price}</span>
-                            {t.status && <span className="text-[10px] uppercase font-bold text-gray-400 bg-gray-100 dark:bg-gray-700 px-1.5 rounded">{t.status}</span>}
-                          </div>
+              {selectedEvent.ticket_details && selectedEvent.ticket_details.length > 0 && (
+                <div className="bg-gray-50 dark:bg-gray-900 p-4 rounded-xl border border-gray-100 dark:border-gray-700">
+                  <h3 className="font-bold text-gray-900 dark:text-gray-100 mb-3 flex items-center gap-2"><Ticket size={16} /> Bilet Seçenekleri</h3>
+                  <div className="space-y-2">
+                    {selectedEvent.ticket_details.map((t: any, idx: number) => (
+                      <div key={idx} className="flex justify-between items-center p-3 bg-white dark:bg-gray-800 rounded-lg shadow-sm">
+                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t.name}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-black text-brand">{t.price}</span>
+                          {t.status && <span className="text-[10px] uppercase font-bold text-gray-400 bg-gray-100 dark:bg-gray-700 px-1.5 rounded">{t.status}</span>}
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                <div className="flex flex-wrap gap-2 mt-4">
-                  <button onClick={() => openNearbyRestaurants(selectedEvent.venue_name, selectedEvent.lat, selectedEvent.lng)} className="flex items-center gap-2 bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-100 px-3 py-2 rounded-lg font-bold text-xs hover:bg-orange-200 transition">
-                    <Utensils size={14} /> Yemek
-                  </button>
-                  {selectedEvent.media_url && (
-                    <button onClick={() => window.open(selectedEvent.media_url, '_blank')} className="flex items-center gap-2 bg-pink-100 text-pink-700 dark:bg-pink-900 dark:text-pink-100 px-3 py-2 rounded-lg font-bold text-xs hover:bg-pink-200 transition">
-                      <Music size={14} /> Medya
-                    </button>
-                  )}
-                </div>
-
-                <div className="pt-4 border-t dark:border-gray-700">
-                  <div className="text-xs font-bold text-gray-400 mb-2 uppercase flex items-center gap-1"><Share2 size={12} /> Paylaş</div>
-                  <div className="flex gap-2">
-                    <button onClick={() => handleShare(selectedEvent, 'whatsapp')} className="p-2 bg-[#25D366]/10 text-[#25D366] rounded-lg hover:bg-[#25D366]/20 transition"><MessageCircle size={20} /></button>
-                    <button onClick={() => handleShare(selectedEvent, 'instagram')} className="p-2 bg-[#E1306C]/10 text-[#E1306C] rounded-lg hover:bg-[#E1306C]/20 transition"><Instagram size={20} /></button>
-                    <button onClick={() => handleShare(selectedEvent, 'twitter')} className="p-2 bg-[#1DA1F2]/10 text-[#1DA1F2] rounded-lg hover:bg-[#1DA1F2]/20 transition"><Twitter size={20} /></button>
-                    <button onClick={() => handleShare(selectedEvent)} className="p-2 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-lg"><Share2 size={20} /></button>
+                      </div>
+                    ))}
                   </div>
                 </div>
+              )}
 
-                <div className="pt-2">
-                  <div className="text-xs font-bold text-gray-400 mb-2 uppercase flex items-center gap-1"><CalendarPlus size={12} /> Takvime Ekle</div>
-                  <div className="flex gap-2">
-                    <button onClick={() => addToCalendar(selectedEvent, 'google')} className="flex items-center gap-1 bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-200 px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-blue-100 transition">Google Calendar</button>
-                    <button onClick={() => addToCalendar(selectedEvent, 'ical')} className="flex items-center gap-1 bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200 px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-gray-200 transition">Apple / iCaL (.ics)</button>
-                  </div>
+              <div className="pt-4 border-t dark:border-gray-700">
+                <div className="text-xs font-bold text-gray-400 mb-2 uppercase flex items-center gap-1"><Share2 size={12} /> Paylaş</div>
+                <div className="flex gap-2">
+                  <button onClick={() => handleShare(selectedEvent, 'whatsapp')} className="p-2 bg-[#25D366]/10 text-[#25D366] rounded-lg hover:bg-[#25D366]/20 transition"><MessageCircle size={20} /></button>
+                  <button onClick={() => handleShare(selectedEvent, 'instagram')} className="p-2 bg-[#E1306C]/10 text-[#E1306C] rounded-lg hover:bg-[#E1306C]/20 transition"><Instagram size={20} /></button>
+                  <button onClick={() => handleShare(selectedEvent, 'twitter')} className="p-2 bg-[#1DA1F2]/10 text-[#1DA1F2] rounded-lg hover:bg-[#1DA1F2]/20 transition"><Twitter size={20} /></button>
+                  <button onClick={() => handleShare(selectedEvent)} className="p-2 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-lg"><Share2 size={20} /></button>
+                </div>
+              </div>
+
+              <div>
+                <div className="text-xs font-bold text-gray-400 mb-2 uppercase flex items-center gap-1"><CalendarPlus size={12} /> Takvime Ekle</div>
+                <div className="flex gap-2">
+                  <button onClick={() => addToCalendar(selectedEvent, 'google')} className="flex items-center gap-1 bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-200 px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-blue-100 transition">Google Calendar</button>
+                  <button onClick={() => addToCalendar(selectedEvent, 'ical')} className="flex items-center gap-1 bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200 px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-gray-200 transition">Apple / iCaL (.ics)</button>
                 </div>
               </div>
             </div>
@@ -631,9 +687,16 @@ END:VCALENDAR`;
               )
             })}
 
-            <div className="flex justify-center gap-4 py-6 border-t dark:border-gray-700 mt-4">
-              <button onClick={() => setShowVenueModal(true)} className="text-xs font-bold text-gray-500 hover:text-brand flex items-center gap-1"><Store size={14} /> Mekanını Ekle</button>
-              <a href="mailto:iletisim@18-23.com" className="text-xs font-bold text-gray-500 hover:text-brand flex items-center gap-1"><Mail size={14} /> Bize Ulaşın</a>
+            <div className="flex flex-wrap justify-center gap-3 py-6 border-t dark:border-gray-700 mt-4">
+              <button onClick={() => setShowVenueModal(true)} className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-xl font-bold text-xs hover:bg-gray-200 dark:hover:bg-gray-700 transition">
+                <Store size={14} /> Mekanını Ekle
+              </button>
+              <button onClick={() => setShowSuggestModal(true)} className="flex items-center gap-2 px-4 py-2 bg-brand/10 text-brand rounded-xl font-bold text-xs hover:bg-brand/20 transition">
+                <Send size={14} /> Etkinlik Öner
+              </button>
+              <a href="mailto:iletisim@18-23.com" className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-xl font-bold text-xs hover:bg-gray-200 dark:hover:bg-gray-700 transition">
+                <Mail size={14} /> Bize Ulaşın
+              </a>
             </div>
             <div className="h-8"></div>
           </div>

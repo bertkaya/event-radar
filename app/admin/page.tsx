@@ -2,9 +2,14 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
-import { Trash2, Edit, Upload, ImageIcon, MapPin, Calendar, Check, AlertTriangle, Ban, Music, Inbox, List, Phone, Mail, User, FileSpreadsheet, Download, Plus, Search, Info, Activity } from 'lucide-react'
+import { Trash2, Edit, Upload, ImageIcon, MapPin, Calendar, Check, AlertTriangle, Ban, Music, Inbox, List, Phone, Mail, User, FileSpreadsheet, Download, Plus, Search, Info, Activity, X, ExternalLink, Clock } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { Venue, Organizer } from '@/lib/types'
+import Link from 'next/link'
+
+// Standardized categories based on Biletix/Passo/Biletinial
+const CATEGORIES = ['Müzik', 'Tiyatro', 'Stand-Up', 'Spor', 'Aile', 'Sanat', 'Eğitim', 'Festival', 'Sinema', 'Parti', 'Yeme-İçme']
+const MOODS = ['Enerjik', 'Romantik', 'Hüzünlü', 'Eğlenceli', 'Sakin', 'Gergin', 'Heyecanlı', 'İlham Verici', 'Mistik', 'Chill']
 
 export default function Admin() {
   const [activeTab, setActiveTab] = useState<'events' | 'applications' | 'health'>('events')
@@ -20,6 +25,8 @@ export default function Admin() {
   const [organizers, setOrganizers] = useState<Organizer[]>([])
 
   const [editingId, setEditingId] = useState<number | null>(null)
+  const [showOrganizerModal, setShowOrganizerModal] = useState(false)
+  const [newOrganizerForm, setNewOrganizerForm] = useState({ name: '', logo_url: '', contact_email: '' })
 
   // Form State
   const [formData, setFormData] = useState({
@@ -46,6 +53,7 @@ export default function Admin() {
 
   // Filter state
   const [showPendingOnly, setShowPendingOnly] = useState(false)
+  const [showPastEvents, setShowPastEvents] = useState(false)
 
   useEffect(() => {
     fetchEvents()
@@ -78,12 +86,16 @@ export default function Admin() {
 
   const triggerAutoFetch = async () => {
     if (pin !== '1823') return alert('PIN gerekli!')
-    setLoading(true); setMsg('İşleniyor...')
+    setLoading(true); setMsg('Scraperlar çalışıyor (Biletinial, Passo, Biletix)... Bu 2-5 dakika sürebilir.')
     try {
-      const res = await fetch('/api/fetch-events', { method: 'POST' })
+      const res = await fetch('/api/run-scrapers', { method: 'POST' })
       const json = await res.json()
-      if (json.success) { alert(`✅ Başarılı! ${json.count || 0} etkinlik eklendi/güncellendi.`); fetchEvents(); fetchScraperLogs(); }
-      else alert('Hata: ' + json.error)
+      if (json.success) {
+        alert(`✅ Başarılı! Scraperlar tamamlandı.`);
+        fetchEvents();
+        fetchScraperLogs();
+      }
+      else alert('Hata: ' + (json.error || json.message))
     } catch (e: any) { alert('Hata: ' + e.message) }
     finally { setLoading(false); setMsg('') }
   }
@@ -271,6 +283,28 @@ export default function Admin() {
     finally { setLoading(false) }
   }
 
+  // Quick inline update for category/mood
+  const handleQuickUpdate = async (eventId: number, field: string, value: string) => {
+    if (pin !== '1823') return alert('PIN gerekli!')
+    await supabase.from('events').update({ [field]: value }).eq('id', eventId)
+    setEvents(events.map(e => e.id === eventId ? { ...e, [field]: value } : e))
+  }
+
+  // Add new organizer
+  const handleAddOrganizer = async () => {
+    if (pin !== '1823') return alert('PIN gerekli!')
+    if (!newOrganizerForm.name) return alert('Organizatör adı gerekli!')
+    const { data, error } = await supabase.from('organizers').insert([newOrganizerForm]).select().single()
+    if (data) {
+      setOrganizers([...organizers, data])
+      setShowOrganizerModal(false)
+      setNewOrganizerForm({ name: '', logo_url: '', contact_email: '' })
+      alert('✅ Organizatör eklendi!')
+    } else if (error) {
+      alert('Hata: ' + error.message)
+    }
+  }
+
   const handleChange = (e: any) => {
     const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value
     setFormData({ ...formData, [e.target.name]: value })
@@ -278,6 +312,25 @@ export default function Admin() {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-12 px-4 font-sans text-gray-800 dark:text-gray-100 pb-32">
+
+      {/* ORGANIZER ADD MODAL */}
+      {showOrganizerModal && (
+        <div className="fixed inset-0 z-[2100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-white dark:bg-gray-800 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden">
+            <div className="p-4 border-b dark:border-gray-700 flex justify-between items-center bg-brand text-white">
+              <h3 className="font-bold">Yeni Organizatör Ekle</h3>
+              <button onClick={() => setShowOrganizerModal(false)}><X size={20} /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <input placeholder="Organizatör Adı *" value={newOrganizerForm.name} onChange={(e) => setNewOrganizerForm({ ...newOrganizerForm, name: e.target.value })} className="w-full border p-3 rounded-lg dark:bg-gray-700 dark:border-gray-600" />
+              <input placeholder="Logo URL" value={newOrganizerForm.logo_url} onChange={(e) => setNewOrganizerForm({ ...newOrganizerForm, logo_url: e.target.value })} className="w-full border p-3 rounded-lg dark:bg-gray-700 dark:border-gray-600" />
+              <input placeholder="E-mail" value={newOrganizerForm.contact_email} onChange={(e) => setNewOrganizerForm({ ...newOrganizerForm, contact_email: e.target.value })} className="w-full border p-3 rounded-lg dark:bg-gray-700 dark:border-gray-600" />
+              <button onClick={handleAddOrganizer} className="w-full bg-brand text-white py-3 rounded-xl font-bold hover:bg-brand-dark">Organizatör Ekle</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="max-w-6xl mx-auto space-y-8">
 
         {/* HEADER */}
@@ -372,9 +425,17 @@ export default function Admin() {
                       <input name="title" value={formData.title} onChange={handleChange} required className="w-full border p-3 rounded-lg dark:bg-gray-700 dark:border-gray-600 font-bold text-lg" placeholder="Etkinlik Başlığı" />
 
                       <div className="flex gap-2">
-                        <select name="category" value={formData.category} onChange={handleChange} className="w-1/2 border p-3 rounded-lg bg-white dark:bg-gray-700 dark:border-gray-600">{['Müzik', 'Tiyatro', 'Sanat', 'Spor', 'Komedi', 'Sinema', 'Yeme-İçme', 'Workshop', 'Çocuk'].map(c => <option key={c}>{c}</option>)}</select>
+                        <select name="category" value={formData.category} onChange={handleChange} className="w-1/2 border p-3 rounded-lg bg-white dark:bg-gray-700 dark:border-gray-600">{CATEGORIES.map(c => <option key={c}>{c}</option>)}</select>
                         <input name="price" value={formData.price} onChange={handleChange} required className="w-1/2 border p-3 rounded-lg dark:bg-gray-700 dark:border-gray-600" placeholder="Fiyat (Örn: 250 TL)" />
                       </div>
+
+                      {/* Venue Mode Warning */}
+                      {formData.venue_mode === 'new' && formData.venue_name && (
+                        <div className="bg-yellow-100 dark:bg-yellow-900/30 border border-yellow-300 dark:border-yellow-700 p-3 rounded-lg flex items-center gap-2">
+                          <AlertTriangle size={16} className="text-yellow-600" />
+                          <span className="text-xs font-bold text-yellow-700 dark:text-yellow-300">Yeni mekan kaydedilecek: {formData.venue_name}</span>
+                        </div>
+                      )}
 
                       <div className="space-y-2">
                         <div className="flex items-center gap-2">
@@ -441,10 +502,15 @@ export default function Admin() {
                       </div>
 
                       <div className="space-y-2">
-                        <select name="organizer_id" value={formData.organizer_id} onChange={handleChange} className="w-full border p-3 rounded-lg dark:bg-gray-700 dark:border-gray-600 text-sm">
-                          <option value="">-- Organizatör (Opsiyonel) --</option>
-                          {organizers.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
-                        </select>
+                        <div className="flex gap-2">
+                          <select name="organizer_id" value={formData.organizer_id} onChange={handleChange} className="flex-1 border p-3 rounded-lg dark:bg-gray-700 dark:border-gray-600 text-sm">
+                            <option value="">-- Organizatör (Opsiyonel) --</option>
+                            {organizers.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+                          </select>
+                          <button type="button" onClick={() => setShowOrganizerModal(true)} className="bg-brand text-white px-3 rounded-lg hover:bg-brand-dark transition" title="Yeni Organizatör Ekle">
+                            <Plus size={18} />
+                          </button>
+                        </div>
                       </div>
 
                       <div className="space-y-4 border-t pt-4 dark:border-gray-700">
@@ -453,7 +519,7 @@ export default function Admin() {
                           <input name="tags" value={formData.tags} onChange={handleChange} className="w-1/2 border p-3 rounded-lg text-sm dark:bg-gray-700 dark:border-gray-600" placeholder="Etiketler (Virgül ile ayır)" />
                           <select name="ai_mood" value={formData.ai_mood} onChange={handleChange} className="w-1/2 border p-3 rounded-lg dark:bg-gray-700 dark:border-gray-600 text-sm">
                             <option value="">-- Mood Seç --</option>
-                            {['Enerjik', 'Romantik', 'Hüzünlü', 'Eğlenceli', 'Sakin', 'Gergin', 'Korku', 'Heyecanlı', 'İlham Verici', 'Mistik'].map(m => <option key={m} value={m}>{m}</option>)}
+                            {MOODS.map(m => <option key={m} value={m}>{m}</option>)}
                           </select>
                         </div>
                       </div>
@@ -517,6 +583,9 @@ export default function Admin() {
               <div className="p-4 border-b dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-900/50">
                 <span className="font-bold text-gray-700 dark:text-gray-300">YÖNETİM LİSTESİ ({events.length})</span>
                 <div className="flex gap-2">
+                  <Link href="/admin/past-events" className="px-3 py-1 rounded-lg text-xs font-bold bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300 hover:bg-gray-300 flex items-center gap-1">
+                    <Clock size={12} /> Geçmiş Etkinlikler
+                  </Link>
                   <button onClick={() => setShowPendingOnly(!showPendingOnly)} className={`px-3 py-1 rounded-lg text-xs font-bold ${showPendingOnly ? 'bg-orange-500 text-white' : 'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300'}`}>
                     {showPendingOnly ? 'Tümünü Göster' : 'Onay Bekleyenler'}
                   </button>
@@ -537,7 +606,28 @@ export default function Admin() {
                         </div>
                       </div>
                     </div>
+                    {/* Inline Category/Mood Editing */}
+                    <div className="flex gap-2 items-center shrink-0">
+                      <select
+                        value={event.category || ''}
+                        onChange={(e) => handleQuickUpdate(event.id, 'category', e.target.value)}
+                        className="text-xs border rounded p-1 dark:bg-gray-700 dark:border-gray-600 w-20"
+                        title="Kategori"
+                      >
+                        {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                      <select
+                        value={event.ai_mood || ''}
+                        onChange={(e) => handleQuickUpdate(event.id, 'ai_mood', e.target.value)}
+                        className="text-xs border rounded p-1 dark:bg-gray-700 dark:border-gray-600 w-20"
+                        title="Mood"
+                      >
+                        <option value="">Mood</option>
+                        {MOODS.map(m => <option key={m} value={m}>{m}</option>)}
+                      </select>
+                    </div>
                     <div className="flex gap-2 w-full md:w-auto justify-end">
+                      {event.sold_out && <span className="px-2 py-1 bg-red-100 text-red-700 rounded text-xs font-bold">TÜKENDİ</span>}
                       {!event.is_approved && <button onClick={() => handleApprove(event.id)} className="px-3 py-1 bg-green-600 text-white rounded text-xs font-bold hover:bg-green-700">ONAYLA</button>}
                       <button onClick={() => handleEditClick(event)} className="p-2 text-blue-600 bg-blue-50 dark:bg-blue-900/30 rounded hover:bg-blue-100"><Edit size={16} /></button>
                       <button onClick={() => handleDelete(event.id)} className="p-2 text-red-600 bg-red-50 dark:bg-red-900/30 rounded hover:bg-red-100"><Trash2 size={16} /></button>

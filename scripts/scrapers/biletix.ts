@@ -11,12 +11,12 @@ export const BiletixScraper: Scraper = {
         const page = await browser.newPage();
 
         try {
-            // 1. Search Multiple Categories
+            // 1. Use working category pages (direct category links)
             const categories = [
-                { name: 'Müzik', url: 'https://www.biletix.com/search/TURKIYE/tr?searchq=M%C3%BCzik' },
-                { name: 'Sahne', url: 'https://www.biletix.com/search/TURKIYE/tr?searchq=Sahne' },
-                { name: 'Spor', url: 'https://www.biletix.com/search/TURKIYE/tr?searchq=Spor' },
-                { name: 'Aile', url: 'https://www.biletix.com/search/TURKIYE/tr?searchq=Aile' }
+                { name: 'Konser', url: 'https://www.biletix.com/anasayfa/TURKIYE/tr#!category_sb=Konser' },
+                { name: 'Tiyatro', url: 'https://www.biletix.com/anasayfa/TURKIYE/tr#!category_sb=Tiyatro' },
+                { name: 'Stand-Up', url: 'https://www.biletix.com/anasayfa/TURKIYE/tr#!category_sb=Stand-up' },
+                { name: 'Spor', url: 'https://www.biletix.com/anasayfa/TURKIYE/tr#!category_sb=Spor' }
             ];
 
             const allLinks = new Set<string>();
@@ -25,16 +25,28 @@ export const BiletixScraper: Scraper = {
                 console.log(`[Biletix] Visiting Category: ${cat.name}...`);
                 try {
                     await page.goto(cat.url, { waitUntil: 'networkidle2', timeout: 60000 });
-                    await dismissPopups(page); // Popups
+                    await dismissPopups(page);
 
-                    await sleep(Math.random() * 2000 + 1000); // Politeness delay
+                    // Wait longer for JS rendering
+                    await sleep(3000);
 
-                    // Collect Links
+                    // Scroll to load more
+                    for (let i = 0; i < 3; i++) {
+                        await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+                        await sleep(1500);
+                    }
+
+                    // Collect Links - more robust selector
                     const links = await page.evaluate(() => {
-                        const anchors = Array.from(document.querySelectorAll('a'));
-                        return anchors
-                            .map(a => (a as HTMLAnchorElement).href)
-                            .filter(href => href.includes('/etkinlik/') || href.includes('/etkinlik-grup/'));
+                        const anchors = Array.from(document.querySelectorAll('a[href*="/etkinlik/"], a[href*="/event/"], [data-href*="/etkinlik/"]'));
+                        const hrefs: string[] = [];
+                        anchors.forEach(a => {
+                            const href = (a as HTMLAnchorElement).href || (a as HTMLElement).getAttribute('data-href');
+                            if (href && (href.includes('/etkinlik/') || href.includes('/event/'))) {
+                                hrefs.push(href);
+                            }
+                        });
+                        return [...new Set(hrefs)];
                     });
 
                     console.log(`[Biletix] Found ${links.length} in ${cat.name}`);
