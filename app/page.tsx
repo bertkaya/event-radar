@@ -21,7 +21,12 @@ const PRESET_LOCATIONS = [
   { name: '• Ümitköy / Çayyolu', lat: 39.8914, lng: 32.7103, zoom: 13 },
   { name: 'İstanbul', lat: 41.0082, lng: 28.9784, zoom: 11 },
   { name: 'İzmir', lat: 38.4237, lng: 27.1428, zoom: 12 },
+  { name: 'İzmir', lat: 38.4237, lng: 27.1428, zoom: 12 },
 ]
+
+// Standart Kategoriler (Admin ile uyumlu)
+const CATEGORIES = ['Müzik', 'Tiyatro', 'Stand-Up', 'Spor', 'Aile', 'Sanat', 'Eğitim', 'Festival', 'Sinema', 'Parti', 'Yeme-İçme']
+
 // MOOD MANTIĞI (Hangi mod hangi kategorileri kapsar?)
 const MOODS: { [key: string]: string[] } = {
   'Kopmalık 🎸': ['Müzik', 'Spor'],
@@ -346,7 +351,6 @@ END:VCALENDAR`;
     else { alert('Hata oluştu: ' + error.message); }
   }
 
-  const categories = ['Tümü', ...Array.from(new Set(allEvents.map(e => e.category)))]
   const handleLocate = () => { setTriggerLocate(true); setCurrentLocName("Konumum"); setTimeout(() => setTriggerLocate(false), 1000) }
   const handleSelectLocation = (loc: any) => {
     setManualLocation(loc);
@@ -613,7 +617,7 @@ END:VCALENDAR`;
           <button onClick={handleLocate} className="absolute top-4 right-4 z-[1000] bg-white dark:bg-gray-800 p-3 rounded-xl shadow-lg hover:bg-brand hover:text-white transition text-gray-700 dark:text-white border border-gray-200 dark:border-gray-700"><Navigation size={20} /></button>
           <div className="md:hidden absolute top-4 left-4 right-16 z-[900] overflow-x-auto no-scrollbar">
             <div className="flex gap-2">
-              {categories.map(cat => (<button key={cat} onClick={() => setActiveCategory(cat)} className={`px-3 py-1.5 rounded-lg text-xs font-bold shadow-md whitespace-nowrap backdrop-blur-md ${activeCategory === cat ? 'bg-brand text-white' : 'bg-white/90 dark:bg-gray-800/90 text-gray-800 dark:text-white'}`}>{cat}</button>))}
+              {['Tümü', ...CATEGORIES].map(cat => (<button key={cat} onClick={() => setActiveCategory(cat)} className={`px-3 py-1.5 rounded-lg text-xs font-bold shadow-md whitespace-nowrap backdrop-blur-md ${activeCategory === cat ? 'bg-brand text-white' : 'bg-white/90 dark:bg-gray-800/90 text-gray-800 dark:text-white'}`}>{cat}</button>))}
             </div>
           </div>
         </div>
@@ -639,7 +643,10 @@ END:VCALENDAR`;
                 {Object.keys(MOODS).map(m => <option key={m} value={m}>{m}</option>)}
               </select>
 
-              <select value={activeCategory} onChange={(e) => setActiveCategory(e.target.value)} className="bg-gray-100 dark:bg-gray-800 dark:text-white text-xs font-bold p-2 rounded-lg border-none focus:ring-0 outline-none cursor-pointer shrink-0"><option value="Tümü">Kategori</option>{Array.from(new Set(allEvents.map(e => e.category))).map(c => <option key={c} value={c}>{c}</option>)}</select>
+              <select value={activeCategory} onChange={(e) => setActiveCategory(e.target.value)} className="bg-gray-100 dark:bg-gray-800 dark:text-white text-xs font-bold p-2 rounded-lg border-none focus:ring-0 outline-none cursor-pointer shrink-0">
+                <option value="Tümü">Kategori</option>
+                {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
             </div>
 
             {/* PRICE SLIDER (Embedded in Header Area) */}
