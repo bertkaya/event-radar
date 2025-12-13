@@ -62,23 +62,33 @@ export const BiletinialScraper: Scraper = {
                 const eventLinks = await page.evaluate(() => {
                     const links: string[] = [];
 
-                    // Event cards with links
-                    document.querySelectorAll('a[href*="/etkinlik/"], a[href*="/activity/"]').forEach(a => {
+                    // Method 1: Event cards with links
+                    document.querySelectorAll('a[href*="/etkinlik/"], a[href*="/activity/"], a[href*="/event/"]').forEach(a => {
                         const href = (a as HTMLAnchorElement).href;
                         if (href && !href.includes('#') && !links.includes(href)) {
                             // Filter out category pages
                             if (!href.endsWith('/tiyatro/') && !href.endsWith('/muzik/') &&
-                                !href.endsWith('/spor/') && !href.endsWith('/kids/')) {
+                                !href.endsWith('/spor/') && !href.endsWith('/kids/') &&
+                                !href.endsWith('/etkinlik/') && !href.includes('/etkinlikleri/')) {
                                 links.push(href);
                             }
                         }
                     });
 
-                    // Also check for event cards with data attributes
-                    document.querySelectorAll('[data-url*="/etkinlik/"]').forEach(el => {
-                        const url = el.getAttribute('data-url');
+                    // Method 2: Event cards with data attributes
+                    document.querySelectorAll('[data-url*="/etkinlik/"], [data-href*="/etkinlik/"]').forEach(el => {
+                        const url = el.getAttribute('data-url') || el.getAttribute('data-href');
                         if (url && !links.includes(url)) {
                             links.push(url.startsWith('http') ? url : 'https://biletinial.com' + url);
+                        }
+                    });
+
+                    // Method 3: All card-like elements with hrefs
+                    document.querySelectorAll('.event-card a, .card a, [class*="event-item"] a, [class*="etkinlik"] a').forEach(a => {
+                        const href = (a as HTMLAnchorElement).href;
+                        if (href && href.includes('biletinial.com') && !links.includes(href) &&
+                            (href.includes('/etkinlik/') || href.includes('/activity/'))) {
+                            links.push(href);
                         }
                     });
 
@@ -87,8 +97,8 @@ export const BiletinialScraper: Scraper = {
 
                 console.log(`[Biletinial] Found ${eventLinks.length} event links in ${catInfo.category}`);
 
-                // Process each event (limit to 8 per category)
-                for (const eventUrl of eventLinks.slice(0, 8)) {
+                // Process each event (limit to 20 per category for speed)
+                for (const eventUrl of eventLinks.slice(0, 20)) {
                     if (processedUrls.has(eventUrl)) continue;
                     processedUrls.add(eventUrl);
 
@@ -98,7 +108,7 @@ export const BiletinialScraper: Scraper = {
                         console.log(`[Biletinial] ✓ Scraped: ${eventData.title}`);
                     }
 
-                    await sleep(1500); // Politeness delay
+                    await sleep(1000); // Reduced delay for speed
                 }
 
             } catch (e) {
