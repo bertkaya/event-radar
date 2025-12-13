@@ -99,6 +99,24 @@ async function logScraperRun(scraperName: string, status: 'running' | 'success' 
     }
 }
 
+async function runScraper(scraper: Scraper): Promise<{ name: string, events: number, duration: number, error?: string }> {
+    const startTime = Date.now();
+    try {
+        console.log(`\n--- Running ${scraper.name} ---`);
+        const events = await scraper.scrape();
+        console.log(`[${scraper.name}] Scraped ${events.length} events.`);
+        await saveEvents(events, scraper.name);
+        const duration = Date.now() - startTime;
+        await logScraperRun(scraper.name, 'success', events.length, null, duration);
+        return { name: scraper.name, events: events.length, duration };
+    } catch (e: any) {
+        console.error(`[${scraper.name}] Failed:`, e);
+        const duration = Date.now() - startTime;
+        await logScraperRun(scraper.name, 'failed', 0, e.message || String(e), duration);
+        return { name: scraper.name, events: 0, duration, error: e.message };
+    }
+}
+
 async function runAll() {
     const scrapers: Scraper[] = [
         BiletinialScraper,
@@ -106,29 +124,22 @@ async function runAll() {
         BiletixScraper
     ];
 
-    console.log(`Starting ${scrapers.length} scrapers...`);
+    console.log(`Starting ${scrapers.length} scrapers in PARALLEL mode...`);
+    const startTime = Date.now();
 
-    for (const scraper of scrapers) {
-        const startTime = Date.now();
-        try {
-            console.log(`\n--- Running ${scraper.name} ---`);
-            // await logScraperRun(scraper.name, 'running'); // Optional: Log start
+    // Run all scrapers in parallel for ~3x speed improvement
+    const results = await Promise.all(scrapers.map(s => runScraper(s)));
 
-            const events = await scraper.scrape();
-            console.log(`[${scraper.name}] Scraped ${events.length} events.`);
-            const stats = await saveEvents(events, scraper.name);
+    const totalDuration = Date.now() - startTime;
+    const totalEvents = results.reduce((sum, r) => sum + r.events, 0);
 
-            const duration = Date.now() - startTime;
-            await logScraperRun(scraper.name, 'success', events.length, null, duration);
-
-        } catch (e: any) {
-            console.error(`[${scraper.name}] Failed:`, e);
-            const duration = Date.now() - startTime;
-            await logScraperRun(scraper.name, 'failed', 0, e.message || String(e), duration);
-        }
-    }
-
-    console.log('\nAll scrapers finished.');
+    console.log('\n========== RESULTS ==========');
+    results.forEach(r => {
+        const status = r.error ? '❌' : '✅';
+        console.log(`${status} ${r.name}: ${r.events} events (${(r.duration / 1000).toFixed(1)}s)`);
+    });
+    console.log(`\nTotal: ${totalEvents} events in ${(totalDuration / 1000).toFixed(1)}s`);
+    console.log('All scrapers finished.');
     process.exit(0);
 }
 

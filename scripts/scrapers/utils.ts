@@ -30,17 +30,18 @@ export async function saveEvents(events: Event[], sourceName: string) {
         return;
     }
 
-    console.log(`[${sourceName}] Saving ${events.length} events to Supabase...`);
+    console.log(`[${sourceName}] Saving ${events.length} events to Supabase (batch mode)...`);
 
-    // Upsert one by one or batch - batch is better but let's do safe chunking
-    // On conflict on 'source_url'
-    for (const event of events) {
+    // Batch upsert in chunks of 50 for better performance
+    const BATCH_SIZE = 50;
+    for (let i = 0; i < events.length; i += BATCH_SIZE) {
+        const batch = events.slice(i, i + BATCH_SIZE);
         const { error } = await sb
             .from('events')
-            .upsert(event, { onConflict: 'source_url' });
+            .upsert(batch, { onConflict: 'source_url' });
 
         if (error) {
-            console.error(`[${sourceName}] Error saving ${event.title}:`, error.message);
+            console.error(`[${sourceName}] Batch error at ${i}-${i + BATCH_SIZE}:`, error.message);
         }
     }
     console.log(`[${sourceName}] Save complete.`);
@@ -54,10 +55,16 @@ export async function getBrowser(): Promise<Browser> {
     if (browserInstance) return browserInstance;
 
     browserInstance = await puppeteer.launch({
-        headless: process.env.HEADLESS === 'true' ? true : false, // Default to false locally, true in CI if set
+        headless: process.env.HEADLESS === 'true' ? true : false,
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
+            '--disable-gpu',
+            '--disable-dev-shm-usage',
+            '--disable-images',
+            '--blink-settings=imagesEnabled=false',
+            '--disable-extensions',
+            '--disable-background-networking',
             '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         ],
         defaultViewport: { width: 1280, height: 800 }
