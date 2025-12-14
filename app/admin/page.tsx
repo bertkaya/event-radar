@@ -7,8 +7,12 @@ import * as XLSX from 'xlsx'
 import { Venue, Organizer } from '@/lib/types'
 import Link from 'next/link'
 
-// Standardized categories based on Biletix/Passo/Biletinial
-const CATEGORIES = ['Müzik', 'Tiyatro', 'Stand-Up', 'Spor', 'Aile', 'Sanat', 'Eğitim', 'Festival', 'Sinema', 'Parti', 'Yeme-İçme']
+// Standardized categories - expanded list
+const CATEGORIES = [
+  'Müzik', 'Konser', 'Tiyatro', 'Stand-Up', 'Dans', 'Bale', 'Opera',
+  'Spor', 'Aile', 'Çocuk', 'Sanat', 'Sergi', 'Eğitim', 'Workshop', 'Söyleşi',
+  'Festival', 'Sinema', 'Parti', 'Gece Hayatı', 'Yeme-İçme'
+]
 const MOODS = ['Kopmalık 🎸', 'Chill & Sanat 🎨', 'Date Night 🍷', 'Ailece 👨‍👩‍👧‍👦', 'Kendini Geliştir 🧠']
 
 export default function Admin() {
@@ -69,6 +73,9 @@ export default function Admin() {
   const [bulkVenueText, setBulkVenueText] = useState('')
   const [bulkVenueLoading, setBulkVenueLoading] = useState(false)
 
+  // Excel upload refs
+  const eventExcelRef = useRef<HTMLInputElement>(null)
+  const venueExcelRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     fetchEvents()
@@ -552,6 +559,171 @@ export default function Admin() {
     fetchResources()
   }
 
+  // Download venue template Excel
+  const downloadVenueTemplate = () => {
+    const templateData = [
+      {
+        'Mekan Adı': 'Congresium Ankara',
+        'Adres': 'Üniversiteler Mah. 1596 Cad. No:9 Bilkent, Çankaya/Ankara',
+        'Enlem (Lat)': 39.8915,
+        'Boylam (Lng)': 32.7892,
+        'Şehir': 'Ankara',
+        'Google Maps URL': 'https://www.google.com/maps/place/...'
+      },
+      {
+        'Mekan Adı': '6:45 KK Ankara',
+        'Adres': 'Kavaklıdere, Tunalı Hilmi Cd. No:100, Çankaya/Ankara',
+        'Enlem (Lat)': 39.9079,
+        'Boylam (Lng)': 32.8589,
+        'Şehir': 'Ankara',
+        'Google Maps URL': ''
+      },
+      {
+        'Mekan Adı': 'Volkswagen Arena',
+        'Adres': 'Huzur, Maslak, Sarıyer/İstanbul',
+        'Enlem (Lat)': 41.1089,
+        'Boylam (Lng)': 29.0183,
+        'Şehir': 'İstanbul',
+        'Google Maps URL': 'https://goo.gl/maps/...'
+      }
+    ]
+    const ws = XLSX.utils.json_to_sheet(templateData)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Mekanlar')
+    XLSX.writeFile(wb, 'mekan_sablonu.xlsx')
+  }
+
+  // Download event template Excel
+  const downloadEventTemplate = () => {
+    const templateData = [
+      {
+        'Etkinlik Adı': 'Mabel Matiz Konseri',
+        'Mekan': 'Congresium Ankara',
+        'Şehir': 'Ankara',
+        'Tarih': '24.12.2024',
+        'Saat': '21:00',
+        'Kategori': 'Konser',
+        'Fiyat': '2200 TL',
+        'Açıklama': 'Mabel Matiz yeni albüm turnesi',
+        'Görsel URL': 'https://example.com/image.jpg',
+        'Bilet URL': 'https://bubilet.com.tr/...',
+        'Kaynak': 'bubilet'
+      },
+      {
+        'Etkinlik Adı': 'Güldür Güldür Show',
+        'Mekan': 'Congresium Ankara',
+        'Şehir': 'Ankara',
+        'Tarih': '14.12.2024',
+        'Saat': '19:30',
+        'Kategori': 'Stand-Up',
+        'Fiyat': '2750 TL',
+        'Açıklama': '',
+        'Görsel URL': '',
+        'Bilet URL': '',
+        'Kaynak': 'bubilet'
+      }
+    ]
+    const ws = XLSX.utils.json_to_sheet(templateData)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Etkinlikler')
+    XLSX.writeFile(wb, 'etkinlik_sablonu.xlsx')
+  }
+
+  // Handle venue Excel upload
+  const handleVenueExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (pin !== '1823') return alert('PIN gerekli!')
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setLoading(true)
+    try {
+      const data = await file.arrayBuffer()
+      const workbook = XLSX.read(data)
+      const sheet = workbook.Sheets[workbook.SheetNames[0]]
+      const rows: any[] = XLSX.utils.sheet_to_json(sheet)
+
+      const venues: any[] = rows.map(row => ({
+        name: row['Mekan Adı'] || row['name'] || '',
+        address: row['Adres'] || row['address'] || '',
+        lat: parseFloat(row['Enlem (Lat)'] || row['lat'] || 0) || null,
+        lng: parseFloat(row['Boylam (Lng)'] || row['lng'] || 0) || null,
+        city: row['Şehir'] || row['city'] || '',
+        maps_url: row['Google Maps URL'] || row['maps_url'] || null
+      })).filter(v => v.name)
+
+      let inserted = 0
+      for (const venue of venues) {
+        const { error } = await supabase.from('venues').upsert(venue, { onConflict: 'name' })
+        if (!error) inserted++
+      }
+
+      alert(`✅ ${inserted} mekan yüklendi!`)
+      fetchResources()
+    } catch (err: any) {
+      alert('Hata: ' + err.message)
+    } finally {
+      setLoading(false)
+      if (venueExcelRef.current) venueExcelRef.current.value = ''
+    }
+  }
+
+  // Handle event Excel upload
+  const handleEventExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (pin !== '1823') return alert('PIN gerekli!')
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setLoading(true)
+    try {
+      const data = await file.arrayBuffer()
+      const workbook = XLSX.read(data)
+      const sheet = workbook.Sheets[workbook.SheetNames[0]]
+      const rows: any[] = XLSX.utils.sheet_to_json(sheet)
+
+      const parseDate = (dateStr: string, timeStr: string) => {
+        if (!dateStr) return new Date().toISOString()
+        const parts = dateStr.split('.')
+        if (parts.length === 3) {
+          const [day, month, year] = parts.map(p => parseInt(p))
+          const [hours, minutes] = (timeStr || '20:00').split(':').map(p => parseInt(p))
+          return new Date(year, month - 1, day, hours || 20, minutes || 0).toISOString()
+        }
+        return new Date().toISOString()
+      }
+
+      const events: any[] = rows.map(row => ({
+        title: row['Etkinlik Adı'] || row['title'] || '',
+        venue_name: row['Mekan'] || row['venue_name'] || '',
+        address: row['Şehir'] || row['address'] || '',
+        start_time: parseDate(row['Tarih'] || row['date'], row['Saat'] || row['time']),
+        category: row['Kategori'] || row['category'] || 'Müzik',
+        price: row['Fiyat'] || row['price'] || '',
+        description: row['Açıklama'] || row['description'] || '',
+        image_url: row['Görsel URL'] || row['image_url'] || '',
+        ticket_url: row['Bilet URL'] || row['ticket_url'] || '',
+        source_url: row['Bilet URL'] || row['source_url'] || '',
+        is_approved: false,
+        ticket_sources: row['Kaynak'] ? [{ source: row['Kaynak'], url: row['Bilet URL'] || '', price: row['Fiyat'] || '' }] : []
+      })).filter(e => e.title)
+
+      if (events.length === 0) {
+        alert('Excel dosyasında geçerli etkinlik bulunamadı!')
+        return
+      }
+
+      const { error } = await supabase.from('events').insert(events)
+      if (error) throw error
+
+      alert(`✅ ${events.length} etkinlik yüklendi!`)
+      fetchEvents()
+    } catch (err: any) {
+      alert('Hata: ' + err.message)
+    } finally {
+      setLoading(false)
+      if (eventExcelRef.current) eventExcelRef.current.value = ''
+    }
+  }
+
   const handleChange = (e: any) => {
     const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value
     setFormData({ ...formData, [e.target.name]: value })
@@ -821,20 +993,73 @@ export default function Admin() {
                 )}
               </div>
 
-              {/* --- BULK VENUE UPLOAD BUTTON --- */}
-              <div className="bg-purple-50 dark:bg-purple-900/20 p-4 rounded-2xl shadow border border-purple-100 dark:border-purple-800">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="font-bold text-purple-800 dark:text-purple-300 flex items-center gap-2"><MapPin size={18} /> Toplu Mekan Yükle</h3>
-                    <p className="text-xs text-gray-600 dark:text-gray-400">Birden fazla mekanı koordinatlarıyla birlikte tek seferde yükleyin.</p>
+              {/* --- BULK UPLOAD SECTION --- */}
+              <div className="grid md:grid-cols-2 gap-4">
+                {/* Excel Event Upload */}
+                <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-2xl shadow border border-green-100 dark:border-green-800">
+                  <h3 className="font-bold text-green-800 dark:text-green-300 flex items-center gap-2 mb-2"><FileSpreadsheet size={18} /> Excel ile Etkinlik Yükle</h3>
+                  <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">Excel dosyasından toplu etkinlik ekleyin.</p>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={downloadEventTemplate}
+                      className="px-3 py-2 bg-green-100 dark:bg-green-800 text-green-700 dark:text-green-200 rounded-lg font-bold hover:bg-green-200 text-xs flex items-center gap-1"
+                    >
+                      <Download size={14} /> Şablon İndir
+                    </button>
+                    <input
+                      ref={eventExcelRef}
+                      type="file"
+                      accept=".xlsx,.xls"
+                      onChange={handleEventExcelUpload}
+                      className="hidden"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => eventExcelRef.current?.click()}
+                      className="px-3 py-2 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700 text-xs flex items-center gap-1"
+                      disabled={loading}
+                    >
+                      <Upload size={14} /> Excel Yükle
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setShowBulkVenueModal(true)}
-                    className="px-4 py-2 bg-purple-600 text-white rounded-lg font-bold hover:bg-purple-700 text-sm flex items-center gap-2"
-                  >
-                    <Upload size={16} /> Mekan Yükle
-                  </button>
+                </div>
+
+                {/* Excel Venue Upload */}
+                <div className="bg-purple-50 dark:bg-purple-900/20 p-4 rounded-2xl shadow border border-purple-100 dark:border-purple-800">
+                  <h3 className="font-bold text-purple-800 dark:text-purple-300 flex items-center gap-2 mb-2"><MapPin size={18} /> Toplu Mekan Yükle</h3>
+                  <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">Mekan koordinatlarını Excel veya metin ile yükleyin.</p>
+                  <div className="flex gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={downloadVenueTemplate}
+                      className="px-3 py-2 bg-purple-100 dark:bg-purple-800 text-purple-700 dark:text-purple-200 rounded-lg font-bold hover:bg-purple-200 text-xs flex items-center gap-1"
+                    >
+                      <Download size={14} /> Şablon
+                    </button>
+                    <input
+                      ref={venueExcelRef}
+                      type="file"
+                      accept=".xlsx,.xls"
+                      onChange={handleVenueExcelUpload}
+                      className="hidden"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => venueExcelRef.current?.click()}
+                      className="px-3 py-2 bg-purple-600 text-white rounded-lg font-bold hover:bg-purple-700 text-xs flex items-center gap-1"
+                      disabled={loading}
+                    >
+                      <Upload size={14} /> Excel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowBulkVenueModal(true)}
+                      className="px-3 py-2 bg-purple-500 text-white rounded-lg font-bold hover:bg-purple-600 text-xs flex items-center gap-1"
+                    >
+                      <List size={14} /> Metin
+                    </button>
+                  </div>
                 </div>
               </div>
 

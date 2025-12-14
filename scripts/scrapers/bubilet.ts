@@ -10,25 +10,42 @@ const BUBILET_CITIES = [
     { url: 'https://www.bubilet.com.tr/bursa', city: 'Bursa' },
 ];
 
-// Kategori eşleştirme
+// Kategori eşleştirme - genişletilmiş liste
 const CATEGORY_MAP: { [key: string]: string } = {
-    'konser': 'Müzik',
+    'konser': 'Konser',
+    'müzik': 'Müzik',
+    'caz': 'Müzik',
+    'jazz': 'Müzik',
+    'rock': 'Müzik',
+    'pop': 'Müzik',
+    'klasik müzik': 'Müzik',
     'tiyatro': 'Tiyatro',
     'stand-up': 'Stand-Up',
     'stand up': 'Stand-Up',
-    'bale': 'Sanat',
-    'opera': 'Sanat',
-    'dans': 'Sanat',
+    'komedi': 'Stand-Up',
+    'bale': 'Bale',
+    'opera': 'Opera',
+    'dans': 'Dans',
     'gösteri': 'Sanat',
+    'sergi': 'Sergi',
     'festival': 'Festival',
     'parti': 'Parti',
-    'dj': 'Parti',
-    'çocuk': 'Aile',
+    'dj': 'Gece Hayatı',
+    'club': 'Gece Hayatı',
+    'gece': 'Gece Hayatı',
+    'çocuk': 'Çocuk',
     'aile': 'Aile',
     'spor': 'Spor',
+    'maç': 'Spor',
     'müzikal': 'Tiyatro',
-    'workshop': 'Eğitim',
-    'seminer': 'Eğitim',
+    'workshop': 'Workshop',
+    'atölye': 'Workshop',
+    'seminer': 'Söyleşi',
+    'söyleşi': 'Söyleşi',
+    'sinema': 'Sinema',
+    'film': 'Sinema',
+    'yemek': 'Yeme-İçme',
+    'gastronomi': 'Yeme-İçme',
 };
 
 function detectCategory(title: string, description: string = ''): string {
@@ -40,10 +57,9 @@ function detectCategory(title: string, description: string = ''): string {
         }
     }
 
-    if (text.includes('konser')) return 'Müzik';
-    return 'Sanat';
+    if (text.includes('konser')) return 'Konser';
+    return 'Müzik'; // Default
 }
-
 // Turkish month parser
 function parseTurkishDate(dateStr: string): Date | null {
     if (!dateStr) return null;
