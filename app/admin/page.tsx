@@ -447,7 +447,12 @@ export default function Admin() {
         ticket_details: formData.ticket_details,
         tags: formData.tags ? formData.tags.split(',').map(t => t.trim()) : [],
         organizer_id: formData.organizer_id ? parseInt(formData.organizer_id) : null,
-        ai_mood: formData.ai_mood // Save mood
+        ai_mood: formData.ai_mood,
+        // Featured/promotion fields
+        is_featured: formData.is_featured,
+        feature_priority: formData.feature_priority || 0,
+        sponsor_name: formData.sponsor_name || null,
+        sponsor_logo: formData.sponsor_logo || null
       }
 
       if (editingId) {
