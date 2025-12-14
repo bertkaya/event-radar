@@ -13,7 +13,20 @@ const CATEGORIES = [
   'Spor', 'Aile', 'Çocuk', 'Sanat', 'Sergi', 'Eğitim', 'Workshop', 'Söyleşi',
   'Festival', 'Sinema', 'Parti', 'Gece Hayatı', 'Yeme-İçme'
 ]
-const MOODS = ['Kopmalık 🎸', 'Chill & Sanat 🎨', 'Date Night 🍷', 'Ailece 👨‍👩‍👧‍👦', 'Kendini Geliştir 🧠']
+const MOODS = [
+  'Kopmalık 🎸',
+  'Chill & Sanat 🎨',
+  'Date Night 🍷',
+  'Ailece 👨‍👩‍👧‍👦',
+  'Kendini Geliştir 🧠',
+  'Romantik 💕',
+  'Outdoor & Doğa 🌿',
+  'Kültür & Tarih 🏛️',
+  'Network & Sosyal 🤝',
+  'Solo Macera 🎒',
+  'Parti & Eğlence 🎉',
+  'Keşif & Yeni Deneyim ✨'
+]
 
 export default function Admin() {
   const [activeTab, setActiveTab] = useState<'events' | 'applications' | 'health'>('events')
