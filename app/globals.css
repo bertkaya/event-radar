@@ -85,3 +85,17 @@ body {
   box-shadow: 0 0 5px rgba(0,0,0,0.3);
   animation: pulse-blue 2s infinite;
 }
+
+/* Marker Event Count Badge */
+.marker-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #800020;
+  color: white;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 1px 4px;
+  border-radius: 4px;
+  margin-left: 4px;
+}

@@ -51,6 +51,10 @@ export default function Admin() {
     ai_mood: '' // New Field
   })
 
+  // Multi-date mode
+  const [multiDateMode, setMultiDateMode] = useState(false)
+  const [additionalDates, setAdditionalDates] = useState<{ date: string; time: string }[]>([])
+
   // Filter state
   const [showPendingOnly, setShowPendingOnly] = useState(false)
   const [showPastEvents, setShowPastEvents] = useState(false)
@@ -319,6 +323,8 @@ export default function Admin() {
       description: '', maps_url: '', image_url: '', ticket_url: '', media_url: '', sold_out: false,
       rules: '', tags: '', organizer_id: '', is_single_day: true, ticket_details: [], ai_mood: ''
     })
+    setMultiDateMode(false)
+    setAdditionalDates([])
   }
 
   const handleApprove = async (id: number) => {
@@ -409,8 +415,21 @@ export default function Admin() {
         setMsg('✅ Güncellendi!')
         setEditingId(null)
       } else {
-        await supabase.from('events').insert([payload])
-        setMsg('✅ Eklendi!')
+        // Multi-date mode: create multiple events with same details but different dates
+        if (multiDateMode && additionalDates.length > 0) {
+          const allDates = [{ date: formData.date, time: formData.time }, ...additionalDates]
+          const allPayloads = allDates.map(d => ({
+            ...payload,
+            start_time: parseEuDate(d.date, d.time),
+            end_time: null
+          }))
+          const { error } = await supabase.from('events').insert(allPayloads)
+          if (error) throw error
+          setMsg(`✅ ${allPayloads.length} etkinlik eklendi!`)
+        } else {
+          await supabase.from('events').insert([payload])
+          setMsg('✅ Eklendi!')
+        }
       }
       resetForm(); fetchEvents()
     } catch (error: any) { setMsg('❌ Hata: ' + error.message) }
@@ -803,6 +822,76 @@ export default function Admin() {
                               <span className="w-16 text-xs font-bold text-gray-500">BİTİŞ</span>
                               <input type="text" name="end_date" value={formData.end_date} onChange={handleChange} placeholder="GG.AA.YYYY" className="flex-1 border p-2 rounded dark:bg-gray-700 dark:border-gray-600 font-mono" />
                               <input type="time" name="end_time" value={formData.end_time} onChange={handleChange} className="w-24 border p-2 rounded dark:bg-gray-700 dark:border-gray-600" />
+                            </div>
+                          )}
+
+                          {/* MULTI-DATE MODE */}
+                          {!editingId && (
+                            <div className="border-t pt-3 dark:border-gray-700">
+                              <div className="flex items-center gap-2 mb-2">
+                                <input
+                                  type="checkbox"
+                                  checked={multiDateMode}
+                                  onChange={(e) => { setMultiDateMode(e.target.checked); if (!e.target.checked) setAdditionalDates([]); }}
+                                  className="w-4 h-4 accent-purple-600"
+                                />
+                                <label className="text-xs font-bold text-purple-600">📅 Çoklu Tarih Modu (Aynı etkinlik farklı günlerde)</label>
+                              </div>
+
+                              {multiDateMode && (
+                                <div className="space-y-2 animate-in fade-in bg-purple-50 dark:bg-purple-900/20 p-3 rounded-lg border border-purple-200 dark:border-purple-800">
+                                  <div className="flex justify-between items-center">
+                                    <span className="text-xs font-bold text-purple-700 dark:text-purple-300">Ek Tarihler ({additionalDates.length})</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => setAdditionalDates([...additionalDates, { date: '', time: formData.time || '20:00' }])}
+                                      className="text-xs bg-purple-600 text-white px-2 py-1 rounded font-bold hover:bg-purple-700 flex items-center gap-1"
+                                    >
+                                      <Plus size={12} /> Tarih Ekle
+                                    </button>
+                                  </div>
+
+                                  {additionalDates.map((adDate, idx) => (
+                                    <div key={idx} className="flex gap-2 items-center">
+                                      <span className="text-[10px] font-bold text-purple-500 w-6">{idx + 2}.</span>
+                                      <input
+                                        type="text"
+                                        value={adDate.date}
+                                        onChange={(e) => {
+                                          const newDates = [...additionalDates]
+                                          newDates[idx].date = e.target.value
+                                          setAdditionalDates(newDates)
+                                        }}
+                                        placeholder="GG.AA.YYYY"
+                                        className="flex-1 border p-2 rounded text-sm dark:bg-gray-700 dark:border-gray-600 font-mono"
+                                      />
+                                      <input
+                                        type="time"
+                                        value={adDate.time}
+                                        onChange={(e) => {
+                                          const newDates = [...additionalDates]
+                                          newDates[idx].time = e.target.value
+                                          setAdditionalDates(newDates)
+                                        }}
+                                        className="w-20 border p-2 rounded text-sm dark:bg-gray-700 dark:border-gray-600"
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() => setAdditionalDates(additionalDates.filter((_, i) => i !== idx))}
+                                        className="p-1 text-red-500 hover:bg-red-100 rounded"
+                                      >
+                                        <Trash2 size={14} />
+                                      </button>
+                                    </div>
+                                  ))}
+
+                                  {additionalDates.length > 0 && (
+                                    <div className="text-[10px] text-purple-600 dark:text-purple-400 mt-1">
+                                      ⚡ Toplam {1 + additionalDates.length} etkinlik oluşturulacak
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>

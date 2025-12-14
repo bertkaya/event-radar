@@ -53,6 +53,18 @@ function deg2rad(deg: number) {
   return deg * (Math.PI / 180)
 }
 
+// Fiyatı TL formatında göster (₺ yerine sadece TL)
+function formatPrice(price: string | undefined | null): string {
+  if (!price) return '';
+  // ₺ işaretini TL ile değiştir
+  let formatted = price.replace(/₺/g, 'TL');
+  // Eğer sadece sayı varsa TL ekle
+  if (/^\d[\d.,\s]*$/.test(formatted.trim())) {
+    formatted = formatted.trim() + ' TL';
+  }
+  return formatted;
+}
+
 export default function Home() {
   const [events, setEvents] = useState<any[]>([])
   const [allEvents, setAllEvents] = useState<any[]>([])
@@ -86,6 +98,12 @@ export default function Home() {
   // Phase 3: User Engagement State
   const [followedVenues, setFollowedVenues] = useState<string[]>([])
   const [notifications, setNotifications] = useState<any[]>([])
+
+  // Phase 5: Reviews State
+  const [eventReviews, setEventReviews] = useState<any[]>([])
+  const [showReviewForm, setShowReviewForm] = useState(false)
+  const [reviewForm, setReviewForm] = useState({ rating: 5, comment: '' })
+  const [submittingReview, setSubmittingReview] = useState(false)
 
   const fetchUserData = async () => {
     const { data: { user } } = await supabase.auth.getUser()
@@ -332,11 +350,69 @@ END:VCALENDAR`;
 
   const openDirections = (e: any, event: any) => {
     e?.stopPropagation()
-    if (event.maps_url) window.open(event.maps_url, '_blank')
-    else window.open(`http://googleusercontent.com/maps.google.com/?q=${event.lat},${event.lng}`, '_blank')
+    if (event.maps_url) {
+      window.open(event.maps_url, '_blank')
+    } else if (event.lat && event.lng) {
+      window.open(`https://www.google.com/maps/dir/?api=1&destination=${event.lat},${event.lng}`, '_blank')
+    } else if (event.address) {
+      window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(event.address)}`, '_blank')
+    } else {
+      alert('Konum bilgisi bulunamadı.')
+    }
   }
 
   const openTicket = (e: any, url: string) => { e?.stopPropagation(); window.open(url, '_blank') }
+
+  // Fetch reviews for selected event
+  const fetchEventReviews = async (eventId: number) => {
+    const { data } = await supabase
+      .from('event_reviews')
+      .select('*, profiles:user_id(id)')
+      .eq('event_id', eventId)
+      .eq('status', 'approved')
+      .order('created_at', { ascending: false })
+      .limit(10)
+    if (data) setEventReviews(data)
+  }
+
+  // Submit a review
+  const handleSubmitReview = async () => {
+    if (!user) return alert('Yorum yapmak için giriş yapmalısınız!')
+    if (!selectedEvent) return
+    if (reviewForm.comment.trim().length < 10) return alert('Yorumunuz en az 10 karakter olmalı.')
+
+    setSubmittingReview(true)
+    const { error } = await supabase.from('event_reviews').insert({
+      event_id: selectedEvent.id,
+      user_id: user.id,
+      rating: reviewForm.rating,
+      comment: reviewForm.comment.trim(),
+      status: 'pending' // Moderasyon bekliyor
+    })
+
+    if (error) {
+      if (error.code === '23505') {
+        alert('Bu etkinliğe zaten yorum yapmışsınız.')
+      } else {
+        alert('Hata: ' + error.message)
+      }
+    } else {
+      alert('✅ Yorumunuz gönderildi! Onaylandıktan sonra görünecek.')
+      setShowReviewForm(false)
+      setReviewForm({ rating: 5, comment: '' })
+    }
+    setSubmittingReview(false)
+  }
+
+  // When selected event changes, fetch its reviews
+  const onEventSelect = (event: any) => {
+    setSelectedEvent(event)
+    if (event) {
+      fetchEventReviews(event.id)
+      setShowReviewForm(false)
+      setReviewForm({ rating: 5, comment: '' })
+    }
+  }
 
   // Submit event suggestion
   const handleSuggestSubmit = async (e: any) => {
@@ -472,7 +548,7 @@ END:VCALENDAR`;
             <div className="p-4 overflow-y-auto space-y-3 bg-gray-50 dark:bg-black/20 flex-1">
               {allEvents.filter(e => e.venue_name === showVenueEventsModal).length === 0 && <div className="text-gray-500 text-center">Başka etkinlik bulunamadı.</div>}
               {allEvents.filter(e => e.venue_name === showVenueEventsModal).map(e => (
-                <div key={e.id} onClick={() => { setSelectedEvent(e); setShowVenueEventsModal(null); }} className="bg-white dark:bg-gray-800 p-3 rounded-xl border border-gray-100 dark:border-gray-700 flex gap-3 cursor-pointer hover:border-brand/50 transition">
+                <div key={e.id} onClick={() => { onEventSelect(e); setShowVenueEventsModal(null); }} className="bg-white dark:bg-gray-800 p-3 rounded-xl border border-gray-100 dark:border-gray-700 flex gap-3 cursor-pointer hover:border-brand/50 transition">
                   {e.image_url && <img src={e.image_url} className="w-16 h-16 object-cover rounded-lg bg-gray-200" />}
                   <div>
                     <div className="font-bold text-sm leading-tight">{e.title}</div>
@@ -521,7 +597,7 @@ END:VCALENDAR`;
               <div>
                 <div className="flex justify-between items-start mb-2">
                   <h2 className="font-black text-2xl text-gray-900 dark:text-white leading-tight">{selectedEvent.title}</h2>
-                  <span className="text-sm font-bold text-brand bg-brand/10 px-2 py-1 rounded shrink-0 ml-2">{selectedEvent.price}</span>
+                  <span className="text-sm font-bold text-brand bg-brand/10 px-2 py-1 rounded shrink-0 ml-2">{formatPrice(selectedEvent.price)}</span>
                 </div>
                 <div className="text-sm text-gray-500 flex items-center gap-2">
                   <Calendar size={14} /> {formatDateRange(selectedEvent.start_time, selectedEvent.end_time)}
@@ -548,7 +624,7 @@ END:VCALENDAR`;
                       <div key={idx} className="flex justify-between items-center p-3 bg-white dark:bg-gray-800 rounded-lg shadow-sm">
                         <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t.name}</span>
                         <div className="flex items-center gap-2">
-                          <span className="text-sm font-black text-brand">{t.price}</span>
+                          <span className="text-sm font-black text-brand">{formatPrice(t.price)}</span>
                           {t.status && <span className="text-[10px] uppercase font-bold text-gray-400 bg-gray-100 dark:bg-gray-700 px-1.5 rounded">{t.status}</span>}
                         </div>
                       </div>
@@ -574,6 +650,100 @@ END:VCALENDAR`;
                   <button onClick={() => addToCalendar(selectedEvent, 'ical')} className="flex items-center gap-1 bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200 px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-gray-200 transition">Apple / iCaL (.ics)</button>
                 </div>
               </div>
+
+              {/* USER REVIEWS SECTION */}
+              <div className="pt-4 border-t dark:border-gray-700">
+                <div className="flex justify-between items-center mb-3">
+                  <div className="text-xs font-bold text-gray-400 uppercase flex items-center gap-1">
+                    <Star size={12} /> Kullanıcı Yorumları ({eventReviews.length})
+                  </div>
+                  {user && (
+                    <button
+                      onClick={() => setShowReviewForm(!showReviewForm)}
+                      className="text-xs font-bold text-brand hover:text-brand-dark flex items-center gap-1"
+                    >
+                      {showReviewForm ? 'İptal' : '+ Yorum Yap'}
+                    </button>
+                  )}
+                </div>
+
+                {/* Review Form */}
+                {showReviewForm && (
+                  <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-xl mb-4 space-y-3">
+                    <div>
+                      <label className="text-xs font-bold text-gray-500 mb-1 block">Puanınız</label>
+                      <div className="flex gap-1">
+                        {[1, 2, 3, 4, 5].map((star) => (
+                          <button
+                            key={star}
+                            onClick={() => setReviewForm({ ...reviewForm, rating: star })}
+                            className="p-1 transition-transform hover:scale-110"
+                          >
+                            <Star
+                              size={24}
+                              className={star <= reviewForm.rating ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300 dark:text-gray-600'}
+                            />
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-gray-500 mb-1 block">Yorumunuz</label>
+                      <textarea
+                        value={reviewForm.comment}
+                        onChange={(e) => setReviewForm({ ...reviewForm, comment: e.target.value })}
+                        placeholder="Bu etkinlik hakkında düşüncelerinizi paylaşın..."
+                        className="w-full border border-gray-200 dark:border-gray-700 rounded-lg p-3 text-sm resize-none h-24 dark:bg-gray-900 focus:ring-2 focus:ring-brand outline-none"
+                        maxLength={500}
+                      />
+                      <div className="text-[10px] text-gray-400 text-right">{reviewForm.comment.length}/500</div>
+                    </div>
+                    <button
+                      onClick={handleSubmitReview}
+                      disabled={submittingReview}
+                      className="w-full bg-brand text-white py-2 rounded-lg font-bold text-sm hover:bg-brand-dark transition disabled:opacity-50"
+                    >
+                      {submittingReview ? 'Gönderiliyor...' : 'Yorumu Gönder'}
+                    </button>
+                  </div>
+                )}
+
+                {/* Reviews List */}
+                {eventReviews.length > 0 ? (
+                  <div className="space-y-3 max-h-48 overflow-y-auto">
+                    {eventReviews.map((review: any) => (
+                      <div key={review.id} className="bg-gray-50 dark:bg-gray-800 p-3 rounded-xl">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-1">
+                            {[1, 2, 3, 4, 5].map((star) => (
+                              <Star
+                                key={star}
+                                size={12}
+                                className={star <= review.rating ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'}
+                              />
+                            ))}
+                          </div>
+                          <span className="text-[10px] text-gray-400">
+                            {new Date(review.created_at).toLocaleDateString('tr-TR')}
+                          </span>
+                        </div>
+                        <p className="text-sm text-gray-700 dark:text-gray-300">{review.comment}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-4 text-sm text-gray-400">
+                    Henüz yorum yapılmamış. {user ? 'İlk yorumu sen yap!' : 'Yorum yapmak için giriş yap.'}
+                  </div>
+                )}
+              </div>
+
+              {/* DISCLAIMER */}
+              <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-3 mt-2">
+                <p className="text-[11px] text-amber-700 dark:text-amber-300 leading-relaxed">
+                  <strong>⚠️ Uyarı:</strong> 18-23, etkinlik organizatörü değildir. Detaylı bilgi ve güncel fiyatlar için lütfen bilet satış sayfasını ziyaret ediniz.
+                </p>
+              </div>
             </div>
 
             <div className="p-4 border-t border-gray-100 dark:border-gray-700 bg-white dark:bg-gray-800 flex items-center gap-3 shrink-0 pb-8 md:pb-4">
@@ -581,7 +751,7 @@ END:VCALENDAR`;
               {selectedEvent.sold_out ? (
                 <div className="flex-1 bg-gray-300 dark:bg-gray-700 text-gray-500 font-bold py-3 rounded-xl flex items-center justify-center gap-2 cursor-not-allowed"><Ban size={20} /> TÜKENDİ</div>
               ) : (
-                <button onClick={(e) => openTicket(e, selectedEvent.ticket_url)} className="flex-1 bg-brand hover:bg-brand-dark text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 shadow-lg transition transform active:scale-95"><Ticket size={20} />{selectedEvent.price?.toLowerCase().includes('ücretsiz') || selectedEvent.price === '0' ? 'ÜCRETSİZ KATIL' : `BİLET AL (${selectedEvent.price})`}</button>
+                <button onClick={(e) => openTicket(e, selectedEvent.ticket_url)} className="flex-1 bg-brand hover:bg-brand-dark text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 shadow-lg transition transform active:scale-95"><Ticket size={20} />{selectedEvent.price?.toLowerCase().includes('ücretsiz') || selectedEvent.price === '0' ? 'ÜCRETSİZ KATIL' : `BİLET AL (${formatPrice(selectedEvent.price)})`}</button>
               )}
               <button onClick={(e) => openDirections(e, selectedEvent)} className="p-3 rounded-xl bg-black dark:bg-white dark:text-black text-white hover:bg-gray-800 transition" title="Yol Tarifi"><Navigation size={24} /></button>
             </div>
@@ -613,7 +783,7 @@ END:VCALENDAR`;
       <div className="flex flex-1 flex-col md:flex-row overflow-hidden relative">
         {/* MAP SECTION */}
         <div className="h-[40%] md:h-full md:w-[60%] bg-gray-100 dark:bg-gray-900 relative order-1 md:order-2">
-          <MapWithNoSSR events={events} selectedEvent={selectedEvent} triggerLocate={triggerLocate} markerMode="title" manualLocation={manualLocation} onEventSelect={setSelectedEvent} />
+          <MapWithNoSSR events={events} selectedEvent={selectedEvent} triggerLocate={triggerLocate} markerMode="title" manualLocation={manualLocation} onEventSelect={onEventSelect} onVenueClick={(venueName: string) => setShowVenueEventsModal(venueName)} />
           <button onClick={handleLocate} className="absolute top-4 right-4 z-[1000] bg-white dark:bg-gray-800 p-3 rounded-xl shadow-lg hover:bg-brand hover:text-white transition text-gray-700 dark:text-white border border-gray-200 dark:border-gray-700"><Navigation size={20} /></button>
           <div className="md:hidden absolute top-4 left-4 right-16 z-[900] overflow-x-auto no-scrollbar">
             <div className="flex gap-2">
@@ -638,15 +808,38 @@ END:VCALENDAR`;
                 <button onClick={() => setPriceFilter(priceFilter === 'all' ? 'free' : 'all')} className={`px-3 py-1 rounded-md text-xs font-bold flex items-center gap-1 ${priceFilter === 'free' ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-100' : 'text-gray-500'}`}><Banknote size={14} /> Ücretsiz</button>
               </div>
 
-              <select value={activeMood} onChange={(e) => { setActiveMood(e.target.value); setActiveCategory('Tümü'); }} className="bg-gray-100 dark:bg-gray-800 dark:text-white text-xs font-bold p-2 rounded-lg border-none focus:ring-0 outline-none cursor-pointer shrink-0">
-                <option value="Tümü">Mood</option>
-                {Object.keys(MOODS).map(m => <option key={m} value={m}>{m}</option>)}
-              </select>
+            </div>
 
-              <select value={activeCategory} onChange={(e) => setActiveCategory(e.target.value)} className="bg-gray-100 dark:bg-gray-800 dark:text-white text-xs font-bold p-2 rounded-lg border-none focus:ring-0 outline-none cursor-pointer shrink-0">
-                <option value="Tümü">Kategori</option>
-                {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
+            {/* MOOD PILLS - Modern Design */}
+            <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-1">
+              {Object.keys(MOODS).map(m => (
+                <button
+                  key={m}
+                  onClick={() => { setActiveMood(activeMood === m ? 'Tümü' : m); setActiveCategory('Tümü'); }}
+                  className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all duration-200 border ${activeMood === m ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white border-transparent shadow-lg scale-105' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:border-purple-300 hover:text-purple-600'}`}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+
+            {/* CATEGORY PILLS - Modern Design */}
+            <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
+              <button
+                onClick={() => setActiveCategory('Tümü')}
+                className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all duration-200 border ${activeCategory === 'Tümü' ? 'bg-brand text-white border-transparent shadow-md' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:border-brand/50'}`}
+              >
+                Tümü
+              </button>
+              {CATEGORIES.map(c => (
+                <button
+                  key={c}
+                  onClick={() => setActiveCategory(c)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all duration-200 border ${activeCategory === c ? 'bg-brand text-white border-transparent shadow-md' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:border-brand/50'}`}
+                >
+                  {c}
+                </button>
+              ))}
             </div>
 
             {/* PRICE SLIDER (Embedded in Header Area) */}
@@ -666,7 +859,7 @@ END:VCALENDAR`;
               const isFav = favorites.includes(event.id);
               const isSoldOut = event.sold_out;
               return (
-                <div key={event.id} onClick={() => setSelectedEvent(event)} className={`group bg-white dark:bg-gray-800 rounded-3xl cursor-pointer transition-all border border-gray-100 dark:border-gray-700 relative overflow-hidden flex flex-row md:flex-col items-stretch md:items-stretch h-32 md:h-auto hover:shadow-lg hover:border-brand/30 outline-none focus:outline-none focus:ring-0 ${!event.image_url ? 'h-auto' : ''}`}>
+                <div key={event.id} onClick={() => onEventSelect(event)} className={`group bg-white dark:bg-gray-800 rounded-3xl cursor-pointer transition-all border border-gray-100 dark:border-gray-700 relative overflow-hidden flex flex-row md:flex-col items-stretch md:items-stretch h-32 md:h-auto hover:shadow-lg hover:border-brand/30 outline-none focus:outline-none focus:ring-0 ${!event.image_url ? 'h-auto' : ''}`}>
                   {event.image_url && (
                     <div className="w-32 h-full md:w-full md:h-40 bg-brand shrink-0 relative flex items-center justify-center overflow-hidden">
                       <img src={event.image_url} alt={event.title} className={`w-full h-full object-cover ${isSoldOut ? 'grayscale' : ''}`} />
@@ -678,7 +871,7 @@ END:VCALENDAR`;
                     <div className="flex justify-between items-start mb-1">
                       {!event.image_url && <span className="text-[10px] font-bold uppercase text-gray-400 bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">{event.category}</span>}
                       {event.image_url && <div className="md:hidden"></div>}
-                      <span className="text-xs font-black text-brand bg-red-50 dark:bg-red-900/30 px-2 py-1 rounded whitespace-nowrap ml-auto">{event.price === '0' || event.price?.toLowerCase().includes('ücretsiz') ? 'Ücretsiz' : event.price}</span>
+                      <span className="text-xs font-black text-brand bg-red-50 dark:bg-red-900/30 px-2 py-1 rounded whitespace-nowrap ml-auto">{event.price === '0' || event.price?.toLowerCase().includes('ücretsiz') ? 'Ücretsiz' : formatPrice(event.price)}</span>
                     </div>
                     <div>
                       <div className="flex items-center justify-between"><h3 className="font-bold text-sm md:text-lg text-gray-900 dark:text-white leading-tight line-clamp-2">{event.title}</h3>{isRecommended && !isSoldOut && <Star size={12} className="fill-yellow-400 text-yellow-400 shrink-0 ml-1" />}</div>
