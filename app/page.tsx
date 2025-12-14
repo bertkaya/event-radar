@@ -255,8 +255,16 @@ export default function Home() {
       });
     }
 
-    // Sıralama
+    // Sıralama - Featured etkinlikler her zaman önce
     filtered.sort((a, b) => {
+      // Featured etkinlikler önce
+      if (a.is_featured && !b.is_featured) return -1
+      if (!a.is_featured && b.is_featured) return 1
+      // İkisi de featured ise, priority'ye göre
+      if (a.is_featured && b.is_featured) {
+        return (b.feature_priority || 0) - (a.feature_priority || 0)
+      }
+      // Normal sıralama
       if (sortBy === 'date-asc') return new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
       else if (sortBy === 'date-desc') return new Date(b.start_time).getTime() - new Date(a.start_time).getTime()
       else if (sortBy === 'popular') { const countA = favCounts[a.id] || 0; const countB = favCounts[b.id] || 0; return countB - countA }
@@ -859,7 +867,17 @@ END:VCALENDAR`;
               const isFav = favorites.includes(event.id);
               const isSoldOut = event.sold_out;
               return (
-                <div key={event.id} onClick={() => onEventSelect(event)} className={`group bg-white dark:bg-gray-800 rounded-3xl cursor-pointer transition-all border border-gray-100 dark:border-gray-700 relative overflow-hidden flex flex-row md:flex-col items-stretch md:items-stretch h-32 md:h-auto hover:shadow-lg hover:border-brand/30 outline-none focus:outline-none focus:ring-0 ${!event.image_url ? 'h-auto' : ''}`}>
+                <div key={event.id} onClick={() => onEventSelect(event)} className={`group bg-white dark:bg-gray-800 rounded-3xl cursor-pointer transition-all border border-gray-100 dark:border-gray-700 relative overflow-hidden flex flex-row md:flex-col items-stretch md:items-stretch h-32 md:h-auto hover:shadow-lg hover:border-brand/30 outline-none focus:outline-none focus:ring-0 ${!event.image_url ? 'h-auto' : ''} ${event.is_featured ? 'ring-2 ring-yellow-400 shadow-lg' : ''}`}>
+                  {event.is_featured && (
+                    <div className="absolute top-2 left-2 z-10 bg-gradient-to-r from-yellow-400 to-orange-500 text-white text-[9px] font-black px-2 py-1 rounded-full shadow-lg flex items-center gap-1">
+                      ⭐ ÖNE ÇIKAN
+                    </div>
+                  )}
+                  {event.sponsor_logo && event.is_featured && (
+                    <div className="absolute top-2 right-2 z-10">
+                      <img src={event.sponsor_logo} alt={event.sponsor_name || 'Sponsor'} className="h-6 w-auto object-contain bg-white/90 backdrop-blur rounded px-1" />
+                    </div>
+                  )}
                   {event.image_url && (
                     <div className="w-32 h-full md:w-full md:h-40 bg-brand shrink-0 relative flex items-center justify-center overflow-hidden">
                       <img src={event.image_url} alt={event.title} className={`w-full h-full object-cover ${isSoldOut ? 'grayscale' : ''}`} />
