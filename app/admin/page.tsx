@@ -65,7 +65,12 @@ export default function Admin() {
     organizer_id: '',
     is_single_day: true,
     ticket_details: [] as any[],
-    ai_mood: '' // New Field
+    ai_mood: '',
+    // Featured/Promotion fields
+    is_featured: false,
+    feature_priority: 0,
+    sponsor_name: '',
+    sponsor_logo: ''
   })
 
   // Multi-date mode
@@ -299,7 +304,11 @@ export default function Admin() {
       organizer_id: event.organizer_id?.toString() || '',
       is_single_day: !event.end_time || (new Date(event.start_time).toDateString() === new Date(event.end_time).toDateString()),
       ticket_details: event.ticket_details || [],
-      ai_mood: event.ai_mood || ''
+      ai_mood: event.ai_mood || '',
+      is_featured: event.is_featured || false,
+      feature_priority: event.feature_priority || 0,
+      sponsor_name: event.sponsor_name || '',
+      sponsor_logo: event.sponsor_logo || ''
     })
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -334,7 +343,11 @@ export default function Admin() {
       organizer_id: event.organizer_id?.toString() || '',
       is_single_day: !event.end_time || (new Date(event.start_time).toDateString() === new Date(event.end_time).toDateString()),
       ticket_details: event.ticket_details || [],
-      ai_mood: event.ai_mood || ''
+      ai_mood: event.ai_mood || '',
+      is_featured: false,
+      feature_priority: 0,
+      sponsor_name: '',
+      sponsor_logo: ''
     })
     setEditingId(null) // Not editing, creating new
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -347,7 +360,8 @@ export default function Admin() {
       title: '', venue_mode: 'existing', venue_id: '', venue_name: '', address: '', category: 'Müzik', price: '',
       date: '', time: '', end_date: '', end_time: '', lat: '', lng: '',
       description: '', maps_url: '', image_url: '', ticket_url: '', media_url: '', sold_out: false,
-      rules: '', tags: '', organizer_id: '', is_single_day: true, ticket_details: [], ai_mood: ''
+      rules: '', tags: '', organizer_id: '', is_single_day: true, ticket_details: [], ai_mood: '',
+      is_featured: false, feature_priority: 0, sponsor_name: '', sponsor_logo: ''
     })
     setMultiDateMode(false)
     setAdditionalDates([])
@@ -1243,6 +1257,60 @@ export default function Admin() {
                               )}
                             </div>
                           )}
+
+                          {/* FEATURED/PROMOTED EVENT SECTION */}
+                          <div className="border-t pt-3 dark:border-gray-700">
+                            <div className="flex items-center gap-2 mb-2">
+                              <input
+                                type="checkbox"
+                                checked={formData.is_featured}
+                                onChange={(e) => setFormData({ ...formData, is_featured: e.target.checked })}
+                                className="w-4 h-4 accent-yellow-500"
+                              />
+                              <label className="text-xs font-bold text-yellow-600">⭐ Öne Çıkan Etkinlik (Reklam)</label>
+                            </div>
+
+                            {formData.is_featured && (
+                              <div className="space-y-2 animate-in fade-in bg-yellow-50 dark:bg-yellow-900/20 p-3 rounded-lg border border-yellow-200 dark:border-yellow-800">
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div>
+                                    <label className="text-[10px] font-bold text-yellow-700 dark:text-yellow-300">Öncelik (1-10)</label>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      max="10"
+                                      value={formData.feature_priority}
+                                      onChange={(e) => setFormData({ ...formData, feature_priority: parseInt(e.target.value) || 0 })}
+                                      className="w-full border p-2 rounded text-sm dark:bg-gray-700 dark:border-gray-600"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="text-[10px] font-bold text-yellow-700 dark:text-yellow-300">Sponsor Adı</label>
+                                    <input
+                                      type="text"
+                                      value={formData.sponsor_name}
+                                      onChange={(e) => setFormData({ ...formData, sponsor_name: e.target.value })}
+                                      placeholder="Firma Adı"
+                                      className="w-full border p-2 rounded text-sm dark:bg-gray-700 dark:border-gray-600"
+                                    />
+                                  </div>
+                                </div>
+                                <div>
+                                  <label className="text-[10px] font-bold text-yellow-700 dark:text-yellow-300">Sponsor Logo URL</label>
+                                  <input
+                                    type="url"
+                                    value={formData.sponsor_logo}
+                                    onChange={(e) => setFormData({ ...formData, sponsor_logo: e.target.value })}
+                                    placeholder="https://..."
+                                    className="w-full border p-2 rounded text-sm dark:bg-gray-700 dark:border-gray-600"
+                                  />
+                                </div>
+                                <p className="text-[10px] text-yellow-600 dark:text-yellow-400">
+                                  🔥 Öne çıkan etkinlikler ana sayfada üst sıralarda ve özel badge ile gösterilir
+                                </p>
+                              </div>
+                            )}
+                          </div>
                         </div>
 
                         <div className="space-y-2">
