@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import { BiletinialScraper } from './scrapers/biletinial.js';
 import { PassoScraper } from './scrapers/passo.js';
 import { BiletixScraper } from './scrapers/biletix.js';
+import { BubiletScraper } from './scrapers/bubilet.js';
 import { Scraper, Event } from './scrapers/types.js';
 import { parsePrice } from './scrapers/utils.js';
 
@@ -118,17 +119,41 @@ async function runScraper(scraper: Scraper): Promise<{ name: string, events: num
 }
 
 async function runAll() {
-    const scrapers: Scraper[] = [
-        BiletinialScraper,
-        PassoScraper,
-        BiletixScraper
-    ];
+    const allScrapers: { [key: string]: Scraper } = {
+        'biletinial': BiletinialScraper,
+        'passo': PassoScraper,
+        'biletix': BiletixScraper,
+        'bubilet': BubiletScraper
+    };
 
-    console.log(`Starting ${scrapers.length} scrapers in PARALLEL mode...`);
+    // Get scraper names from command line arguments
+    const args = process.argv.slice(2).map(a => a.toLowerCase());
+
+    let scrapersToRun: Scraper[];
+
+    if (args.length > 0) {
+        // Run only specified scrapers
+        scrapersToRun = args
+            .filter(name => allScrapers[name])
+            .map(name => allScrapers[name]);
+
+        if (scrapersToRun.length === 0) {
+            console.log('Available scrapers:', Object.keys(allScrapers).join(', '));
+            console.log('Usage: npx tsx scripts/run_scrapers.ts [scraper1] [scraper2] ...');
+            process.exit(1);
+        }
+
+        console.log(`Running ${scrapersToRun.length} selected scraper(s): ${args.filter(n => allScrapers[n]).join(', ')}`);
+    } else {
+        // Run all scrapers
+        scrapersToRun = Object.values(allScrapers);
+        console.log(`Starting ${scrapersToRun.length} scrapers in PARALLEL mode...`);
+    }
+
     const startTime = Date.now();
 
-    // Run all scrapers in parallel for ~3x speed improvement
-    const results = await Promise.all(scrapers.map(s => runScraper(s)));
+    // Run scrapers in parallel
+    const results = await Promise.all(scrapersToRun.map(s => runScraper(s)));
 
     const totalDuration = Date.now() - startTime;
     const totalEvents = results.reduce((sum, r) => sum + r.events, 0);

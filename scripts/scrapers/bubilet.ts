@@ -1,7 +1,7 @@
-import { Scraper, Event, TicketDetail } from './types';
-import { getBrowser, normalizeDate, sleep, dismissPopups, safeNavigate, autoScroll } from './utils';
+import { Scraper, Event } from './types';
+import { sleep } from './utils';
 
-// Bubilet şehir sayfaları - Ana kategorilere göre
+// Bubilet şehir sayfaları
 const BUBILET_CITIES = [
     { url: 'https://www.bubilet.com.tr/ankara', city: 'Ankara' },
     { url: 'https://www.bubilet.com.tr/istanbul', city: 'İstanbul' },
@@ -31,8 +31,8 @@ const CATEGORY_MAP: { [key: string]: string } = {
     'seminer': 'Eğitim',
 };
 
-function detectCategory(title: string, description: string, tags: string[]): string {
-    const text = (title + ' ' + description + ' ' + tags.join(' ')).toLowerCase();
+function detectCategory(title: string, description: string = ''): string {
+    const text = (title + ' ' + description).toLowerCase();
 
     for (const [keyword, category] of Object.entries(CATEGORY_MAP)) {
         if (text.includes(keyword)) {
@@ -40,298 +40,12 @@ function detectCategory(title: string, description: string, tags: string[]): str
         }
     }
 
-    // Default to Müzik if "konser" is in title
     if (text.includes('konser')) return 'Müzik';
-
-    return 'Sanat'; // Default category
+    return 'Sanat';
 }
 
-export const BubiletScraper: Scraper = {
-    name: 'Bubilet',
-    async scrape(): Promise<Event[]> {
-        console.log('[Bubilet] Starting comprehensive scrape...');
-        const browser = await getBrowser();
-        const events: Event[] = [];
-        const processedUrls = new Set<string>();
-
-        for (const cityInfo of BUBILET_CITIES) {
-            console.log(`\n[Bubilet] City: ${cityInfo.city} - ${cityInfo.url}`);
-            const page = await browser.newPage();
-
-            try {
-                // Navigate to city page
-                await safeNavigate(page, cityInfo.url);
-                await dismissPopups(page);
-                await sleep(2000);
-
-                // Scroll to load more events
-                await autoScroll(page);
-                await sleep(1000);
-
-                // Find event links on the page
-                const eventLinks = await page.evaluate(() => {
-                    const links: string[] = [];
-
-                    // Find all event links - bubilet uses /etkinlik/ path
-                    document.querySelectorAll('a[href*="/etkinlik/"]').forEach(a => {
-                        const href = (a as HTMLAnchorElement).href;
-                        if (!href || href.includes('#') || href.includes('/seans/')) return;
-
-                        // Skip if it's just the base etkinlik page
-                        const parts = href.split('/etkinlik/');
-                        if (parts.length > 1 && parts[1] && parts[1].length > 0) {
-                            const slug = parts[1].split('/')[0].split('?')[0];
-                            if (slug && slug.length > 3) {
-                                if (!links.includes(href)) {
-                                    links.push(href);
-                                }
-                            }
-                        }
-                    });
-
-                    return [...new Set(links)];
-                });
-
-                console.log(`[Bubilet] Found ${eventLinks.length} event links in ${cityInfo.city}`);
-
-                // Process each event (limit to 30 per city for speed)
-                for (const eventUrl of eventLinks.slice(0, 30)) {
-                    if (processedUrls.has(eventUrl)) continue;
-                    processedUrls.add(eventUrl);
-
-                    const eventData = await scrapeEventDetail(browser, eventUrl, cityInfo.city);
-                    if (eventData) {
-                        events.push(eventData);
-                        console.log(`[Bubilet] ✓ Scraped: ${eventData.title}`);
-                    }
-
-                    await sleep(800); // Delay between requests
-                }
-
-            } catch (e) {
-                console.error(`[Bubilet] Error in city ${cityInfo.city}:`, e);
-            } finally {
-                await page.close();
-            }
-        }
-
-        console.log(`\n[Bubilet] Total scraped: ${events.length} events`);
-        return events;
-    }
-};
-
-async function scrapeEventDetail(browser: any, url: string, city: string): Promise<Event | null> {
-    const page = await browser.newPage();
-
-    try {
-        await safeNavigate(page, url);
-        await sleep(2000);
-
-        // Dismiss any popups
-        await dismissPopups(page);
-
-        // Extract event information
-        const eventInfo = await page.evaluate(() => {
-            const getText = (sel: string) => document.querySelector(sel)?.textContent?.trim() || '';
-            const getMeta = (prop: string) => document.querySelector(`meta[property="${prop}"]`)?.getAttribute('content') || '';
-            const getMetaName = (name: string) => document.querySelector(`meta[name="${name}"]`)?.getAttribute('content') || '';
-
-            // Title - usually in h1 or h2
-            const title = document.querySelector('h1')?.textContent?.trim() ||
-                document.querySelector('h2')?.textContent?.trim() ||
-                getMeta('og:title') ||
-                document.title.split('|')[0].trim();
-
-            // Description
-            const description = getMeta('og:description') ||
-                getMetaName('description') ||
-                document.querySelector('.event-description, [class*="description"], [class*="about"]')?.textContent?.trim() || '';
-
-            // Image
-            const imageUrl = getMeta('og:image') ||
-                document.querySelector('.event-image img, .event-poster img, [class*="poster"] img')?.getAttribute('src') ||
-                document.querySelector('img[alt*="etkinlik"], img[alt*="konser"]')?.getAttribute('src') || '';
-
-            // Venue - look for venue links or elements
-            let venueName = '';
-            let venueAddress = '';
-
-            // Try venue link
-            const venueLink = document.querySelector('a[href*="/mekan/"]');
-            if (venueLink) {
-                venueName = venueLink.textContent?.trim() || '';
-            }
-
-            // Try structured data
-            const venueEl = document.querySelector('[class*="venue"], [class*="mekan"], [class*="location"]');
-            if (venueEl && !venueName) {
-                venueName = venueEl.textContent?.trim() || '';
-            }
-
-            // Try to find address from Google Maps link
-            const mapsLink = document.querySelector('a[href*="google.com/maps"]');
-            if (mapsLink) {
-                const href = mapsLink.getAttribute('href') || '';
-                // Extract coordinates if available
-                const coordMatch = href.match(/destination=([0-9.-]+),([0-9.-]+)/);
-                if (coordMatch) {
-                    venueAddress = `${coordMatch[1]},${coordMatch[2]}`;
-                }
-            }
-
-            // Date/Time - look for session/seans links with date info
-            const seansLinks = document.querySelectorAll('a[href*="/seans/"]');
-            const sessions: { date: string; time: string; price: string; url: string }[] = [];
-
-            seansLinks.forEach(link => {
-                const parent = link.closest('div, li, article');
-                if (parent) {
-                    const text = parent.textContent || '';
-                    // Extract date patterns like "24 Aralık", "13 Ocak Sal - 21:00"
-                    const dateMatch = text.match(/(\d{1,2}\s+(?:Ocak|Şubat|Mart|Nisan|Mayıs|Haziran|Temmuz|Ağustos|Eylül|Ekim|Kasım|Aralık)(?:\s+\w+)?(?:\s+-\s+\d{1,2}:\d{2})?)/i);
-                    const priceMatch = text.match(/(\d+(?:[.,]\d+)?)\s*₺/);
-
-                    sessions.push({
-                        date: dateMatch ? dateMatch[1] : '',
-                        time: dateMatch ? (text.match(/\d{1,2}:\d{2}/) || [''])[0] : '',
-                        price: priceMatch ? priceMatch[1] + ' TL' : '',
-                        url: (link as HTMLAnchorElement).href
-                    });
-                }
-            });
-
-            // Price - look for price text on page
-            let priceText = '';
-            const priceElements = document.querySelectorAll('[class*="price"], [class*="fiyat"]');
-            priceElements.forEach(el => {
-                const text = el.textContent?.trim() || '';
-                if (text.includes('₺') || text.includes('TL')) {
-                    if (!priceText) priceText = text;
-                }
-            });
-
-            // Also check for price in link text
-            if (!priceText) {
-                const allText = document.body.innerText;
-                const priceMatch = allText.match(/(\d+(?:[.,]\d+)?)\s*₺/);
-                if (priceMatch) {
-                    priceText = priceMatch[1] + ' TL';
-                }
-            }
-
-            // Tags/Categories
-            const tags: string[] = [];
-            document.querySelectorAll('a[href*="/etiket/"]').forEach(el => {
-                const tag = el.textContent?.trim();
-                if (tag) tags.push(tag);
-            });
-
-            // Rules
-            const rules: string[] = [];
-            const rulesSection = document.querySelector('[class*="rule"], [class*="kural"], [class*="uyarı"]');
-            if (rulesSection) {
-                rulesSection.querySelectorAll('li, p').forEach(li => {
-                    const text = li.textContent?.trim();
-                    if (text && text.length > 10) rules.push(text);
-                });
-            }
-
-            return {
-                title,
-                description,
-                imageUrl,
-                venueName,
-                venueAddress,
-                sessions,
-                priceText,
-                tags,
-                rules
-            };
-        });
-
-        if (!eventInfo.title) {
-            console.warn(`[Bubilet] No title found for ${url}`);
-            await page.close();
-            return null;
-        }
-
-        // Parse first session date or generate default
-        let startTime = new Date().toISOString();
-        let endTime: string | undefined;
-
-        if (eventInfo.sessions && eventInfo.sessions.length > 0) {
-            const firstSession = eventInfo.sessions[0];
-            const parsedDate = parseTurkishDate(firstSession.date, firstSession.time);
-            if (parsedDate) {
-                startTime = parsedDate.toISOString();
-            }
-        }
-
-        // Detect category from tags and title
-        const category = detectCategory(eventInfo.title, eventInfo.description, eventInfo.tags);
-
-        // Parse venue coordinates if available
-        let lat: number | undefined;
-        let lng: number | undefined;
-        if (eventInfo.venueAddress && eventInfo.venueAddress.includes(',')) {
-            const [latStr, lngStr] = eventInfo.venueAddress.split(',');
-            lat = parseFloat(latStr);
-            lng = parseFloat(lngStr);
-            if (isNaN(lat) || isNaN(lng)) {
-                lat = undefined;
-                lng = undefined;
-            }
-        }
-
-        // Build ticket details from sessions
-        const ticketDetails: TicketDetail[] = [];
-        if (eventInfo.sessions) {
-            eventInfo.sessions.forEach((session: any, idx: number) => {
-                if (session.price) {
-                    ticketDetails.push({
-                        name: session.date || `Seans ${idx + 1}`,
-                        price: session.price.replace('₺', 'TL'),
-                        status: 'available'
-                    });
-                }
-            });
-        }
-
-        // Use first price found
-        const price = eventInfo.priceText?.replace('₺', 'TL') ||
-            (ticketDetails.length > 0 ? ticketDetails[0].price : '');
-
-        const event: Event = {
-            title: eventInfo.title,
-            venue_name: eventInfo.venueName || city,
-            address: city,
-            start_time: startTime,
-            end_time: endTime,
-            description: eventInfo.description,
-            image_url: eventInfo.imageUrl,
-            source_url: url,
-            category: category,
-            price: price,
-            lat: lat,
-            lng: lng,
-            rules: eventInfo.rules,
-            ticket_details: ticketDetails.length > 0 ? ticketDetails : undefined,
-            tags: eventInfo.tags,
-            is_approved: false
-        };
-
-        await page.close();
-        return event;
-
-    } catch (e) {
-        console.error(`[Bubilet] Error scraping ${url}:`, e);
-        await page.close();
-        return null;
-    }
-}
-
-// Helper function to parse Turkish date formats
-function parseTurkishDate(dateStr: string, timeStr?: string): Date | null {
+// Turkish month parser
+function parseTurkishDate(dateStr: string): Date | null {
     if (!dateStr) return null;
 
     const months: { [key: string]: number } = {
@@ -340,7 +54,6 @@ function parseTurkishDate(dateStr: string, timeStr?: string): Date | null {
     };
 
     try {
-        // Parse "24 Aralık" or "13 Ocak Sal"
         const parts = dateStr.toLowerCase().trim().split(/\s+/);
         if (parts.length < 2) return null;
 
@@ -350,26 +63,308 @@ function parseTurkishDate(dateStr: string, timeStr?: string): Date | null {
 
         if (isNaN(day) || month === undefined) return null;
 
-        // Determine year - if month is before current month, use next year
         const now = new Date();
         let year = now.getFullYear();
         if (month < now.getMonth() || (month === now.getMonth() && day < now.getDate())) {
             year++;
         }
 
-        // Parse time if available
-        let hours = 20; // Default to 20:00
-        let minutes = 0;
-        if (timeStr) {
-            const timeParts = timeStr.split(':');
-            if (timeParts.length === 2) {
-                hours = parseInt(timeParts[0]) || 20;
-                minutes = parseInt(timeParts[1]) || 0;
-            }
-        }
+        // Check for time in the string
+        const timeMatch = dateStr.match(/(\d{1,2}):(\d{2})/);
+        const hours = timeMatch ? parseInt(timeMatch[1]) : 20;
+        const minutes = timeMatch ? parseInt(timeMatch[2]) : 0;
 
         return new Date(year, month, day, hours, minutes);
     } catch (e) {
+        return null;
+    }
+}
+
+export const BubiletScraper: Scraper = {
+    name: 'Bubilet',
+    async scrape(): Promise<Event[]> {
+        console.log('[Bubilet] Starting fetch-based scrape...');
+        const events: Event[] = [];
+        const processedUrls = new Set<string>();
+
+        for (const cityInfo of BUBILET_CITIES) {
+            console.log(`\n[Bubilet] City: ${cityInfo.city} - ${cityInfo.url}`);
+
+            try {
+                // Fetch city page with proper headers
+                const response = await fetch(cityInfo.url, {
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                        'Accept-Language': 'tr-TR,tr;q=0.9,en;q=0.8',
+                        'Cache-Control': 'no-cache',
+                    }
+                });
+
+                if (!response.ok) {
+                    console.error(`[Bubilet] Failed to fetch ${cityInfo.url}: ${response.status}`);
+                    continue;
+                }
+
+                const html = await response.text();
+                console.log(`[Bubilet] Got ${html.length} chars from ${cityInfo.city}`);
+
+                // Extract event links using regex
+                const linkRegex = /href="([^"]*\/etkinlik\/[^"]+)"/g;
+                const eventLinks: string[] = [];
+                let match;
+
+                while ((match = linkRegex.exec(html)) !== null) {
+                    let href = match[1];
+
+                    // Skip seans links
+                    if (href.includes('/seans/')) continue;
+
+                    // Build full URL
+                    if (href.startsWith('/')) {
+                        href = 'https://www.bubilet.com.tr' + href;
+                    }
+
+                    // Validate the URL
+                    const parts = href.split('/etkinlik/');
+                    if (parts.length > 1 && parts[1]) {
+                        const slug = parts[1].split('/')[0].split('?')[0];
+                        if (slug && slug.length > 2 && !eventLinks.includes(href)) {
+                            eventLinks.push(href);
+                        }
+                    }
+                }
+
+                console.log(`[Bubilet] Found ${eventLinks.length} event links in ${cityInfo.city}`);
+
+                // Also extract event info directly from the page
+                // Pattern: [Title Venue Date Price](url)
+                const eventPattern = /\[([^\]]+)\]\((https:\/\/www\.bubilet\.com\.tr\/[^\/]+\/etkinlik\/[^)]+)\)/g;
+
+                while ((match = eventPattern.exec(html)) !== null) {
+                    const infoText = match[1];
+                    const eventUrl = match[2];
+
+                    if (processedUrls.has(eventUrl) || eventUrl.includes('/seans/')) continue;
+                    processedUrls.add(eventUrl);
+
+                    // Parse the info text (usually: Title Venue Date Price)
+                    // Example: "Mabel MatizCongresium Ankara24 Aralık, 25 Aralık2200₺"
+
+                    // Try to extract price
+                    const priceMatch = infoText.match(/(\d+(?:[.,]\d+)?)\s*₺/);
+                    const price = priceMatch ? priceMatch[1] + ' TL' : '';
+
+                    // Try to extract date
+                    const dateMatch = infoText.match(/(\d{1,2}\s+(?:Ocak|Şubat|Mart|Nisan|Mayıs|Haziran|Temmuz|Ağustos|Eylül|Ekim|Kasım|Aralık)(?:\s*,?\s*\d{1,2}\s+(?:Ocak|Şubat|Mart|Nisan|Mayıs|Haziran|Temmuz|Ağustos|Eylül|Ekim|Kasım|Aralık))?(?:\s+\w{3})?\s*(?:-\s*\d{1,2}:\d{2})?)/i);
+
+                    let startTime = new Date();
+                    startTime.setHours(20, 0, 0, 0);
+
+                    if (dateMatch) {
+                        const parsed = parseTurkishDate(dateMatch[1]);
+                        if (parsed) startTime = parsed;
+                    }
+
+                    // Extract title (everything before the venue/date)
+                    let title = infoText;
+                    if (priceMatch) title = title.replace(priceMatch[0], '');
+                    if (dateMatch) title = title.replace(dateMatch[0], '');
+                    title = title.replace(/\d+₺/g, '').trim();
+
+                    // Get slug for better title
+                    const slug = eventUrl.split('/etkinlik/')[1]?.split('/')[0] || '';
+                    const slugTitle = slug.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+
+                    if (!title || title.length < 3) {
+                        title = slugTitle;
+                    }
+
+                    const event: Event = {
+                        title: title,
+                        venue_name: cityInfo.city,
+                        address: cityInfo.city,
+                        start_time: startTime.toISOString(),
+                        description: '',
+                        image_url: '',
+                        source_url: eventUrl,
+                        category: detectCategory(title),
+                        price: price,
+                        is_approved: false
+                    };
+
+                    events.push(event);
+                    console.log(`[Bubilet] ✓ Extracted: ${event.title} (${price})`);
+                }
+
+                // If no events found from pattern, try to scrape detail pages
+                if (events.filter(e => e.address === cityInfo.city).length === 0) {
+                    console.log(`[Bubilet] No quick events found, trying detail pages...`);
+
+                    for (const eventUrl of eventLinks.slice(0, 15)) {
+                        if (processedUrls.has(eventUrl)) continue;
+                        processedUrls.add(eventUrl);
+
+                        try {
+                            const eventData = await scrapeEventDetailFetch(eventUrl, cityInfo.city);
+                            if (eventData) {
+                                events.push(eventData);
+                                console.log(`[Bubilet] ✓ Scraped: ${eventData.title}`);
+                            }
+                        } catch (e) {
+                            console.error(`[Bubilet] Error on ${eventUrl}:`, e);
+                        }
+
+                        await sleep(500);
+                    }
+                }
+
+                await sleep(1000);
+
+            } catch (e) {
+                console.error(`[Bubilet] Error in city ${cityInfo.city}:`, e);
+            }
+        }
+
+        console.log(`\n[Bubilet] Total scraped: ${events.length} events`);
+        return events;
+    }
+};
+
+async function scrapeEventDetailFetch(url: string, city: string): Promise<Event | null> {
+    try {
+        const response = await fetch(url, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'tr-TR,tr;q=0.9,en;q=0.8',
+            }
+        });
+
+        if (!response.ok) return null;
+
+        const html = await response.text();
+
+        // Extract title from og:title or <title>
+        let title = '';
+        const ogTitleMatch = html.match(/<meta\s+property="og:title"\s+content="([^"]+)"/i);
+        const titleMatch = html.match(/<title>([^<]+)<\/title>/i);
+
+        if (ogTitleMatch) {
+            title = ogTitleMatch[1].split('|')[0].trim();
+        } else if (titleMatch) {
+            title = titleMatch[1].split('|')[0].trim();
+        }
+
+        if (!title || title.length < 3) return null;
+
+        // Clean title - remove " biletleri" suffix
+        title = title.replace(/\s*biletleri?\s*$/i, '').trim();
+
+        // Extract description from og:description
+        let description = '';
+        const descMatch = html.match(/<meta\s+(?:property="og:description"|name="description")\s+content="([^"]+)"/i);
+        if (descMatch) {
+            description = descMatch[1];
+        }
+
+        // Extract image from og:image
+        let imageUrl = '';
+        const imgMatch = html.match(/<meta\s+property="og:image"\s+content="([^"]+)"/i);
+        if (imgMatch) {
+            imageUrl = imgMatch[1];
+        }
+
+        // Extract price
+        let price = '';
+        const priceMatch = html.match(/(\d+(?:[.,]\d+)?)\s*₺/);
+        if (priceMatch) {
+            price = priceMatch[1] + ' TL';
+        }
+
+        // Extract date
+        let startTime = new Date();
+        startTime.setHours(20, 0, 0, 0);
+
+        const dateMatch = html.match(/(\d{1,2}\s+(?:Ocak|Şubat|Mart|Nisan|Mayıs|Haziran|Temmuz|Ağustos|Eylül|Ekim|Kasım|Aralık)(?:\s+\w{3})?(?:\s+-\s+\d{1,2}:\d{2})?)/i);
+        if (dateMatch) {
+            const parsed = parseTurkishDate(dateMatch[1]);
+            if (parsed) startTime = parsed;
+        }
+
+        // Extract venue from page
+        let venueName = city;
+        const venueMatch = html.match(/<a[^>]+href="[^"]*\/mekan\/[^"]*"[^>]*>([^<]+)<\/a>/i);
+        if (venueMatch) {
+            venueName = venueMatch[1].trim();
+        }
+
+        // Extract coordinates from Google Maps link
+        let lat: number | undefined;
+        let lng: number | undefined;
+        let mapsUrl: string | undefined;
+
+        // Pattern 1: destination=lat,lng in Google Maps link
+        const mapsDestMatch = html.match(/href="([^"]*google\.com\/maps[^"]*destination=([0-9.-]+),([0-9.-]+)[^"]*)"/i);
+        if (mapsDestMatch) {
+            mapsUrl = mapsDestMatch[1];
+            lat = parseFloat(mapsDestMatch[2]);
+            lng = parseFloat(mapsDestMatch[3]);
+        }
+
+        // Pattern 2: @lat,lng in Google Maps link
+        if (!lat || !lng) {
+            const mapsAtMatch = html.match(/href="([^"]*google\.com\/maps[^"]*@([0-9.-]+),([0-9.-]+)[^"]*)"/i);
+            if (mapsAtMatch) {
+                mapsUrl = mapsAtMatch[1];
+                lat = parseFloat(mapsAtMatch[2]);
+                lng = parseFloat(mapsAtMatch[3]);
+            }
+        }
+
+        // Pattern 3: query=lat,lng
+        if (!lat || !lng) {
+            const mapsQueryMatch = html.match(/href="([^"]*google\.com\/maps[^"]*query=([0-9.-]+),([0-9.-]+)[^"]*)"/i);
+            if (mapsQueryMatch) {
+                mapsUrl = mapsQueryMatch[1];
+                lat = parseFloat(mapsQueryMatch[2]);
+                lng = parseFloat(mapsQueryMatch[3]);
+            }
+        }
+
+        // Extract address from page if available
+        let address = city;
+        const addressMatch = html.match(/<[^>]+class="[^"]*address[^"]*"[^>]*>([^<]+)<\/[^>]+>/i);
+        if (addressMatch) {
+            address = addressMatch[1].trim();
+        }
+
+        // Ticket sources - include this source
+        const ticketSources = [{
+            source: 'bubilet',
+            url: url,
+            price: price
+        }];
+
+        return {
+            title: title,
+            venue_name: venueName,
+            address: address,
+            start_time: startTime.toISOString(),
+            description: description,
+            image_url: imageUrl,
+            source_url: url,
+            category: detectCategory(title, description),
+            price: price,
+            lat: lat,
+            lng: lng,
+            maps_url: mapsUrl,
+            ticket_sources: ticketSources,
+            is_approved: false
+        };
+
+    } catch (e) {
+        console.error(`[Bubilet] Error fetching ${url}:`, e);
         return null;
     }
 }

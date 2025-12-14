@@ -64,6 +64,12 @@ export default function Admin() {
   const [selectedSessions, setSelectedSessions] = useState<number[]>([])
   const [scrapedEventData, setScrapedEventData] = useState<any>(null)
 
+  // Bulk venue upload
+  const [showBulkVenueModal, setShowBulkVenueModal] = useState(false)
+  const [bulkVenueText, setBulkVenueText] = useState('')
+  const [bulkVenueLoading, setBulkVenueLoading] = useState(false)
+
+
   useEffect(() => {
     fetchEvents()
     fetchApplications()
@@ -458,6 +464,94 @@ export default function Admin() {
     }
   }
 
+  // Bulk venue upload
+  // Format: name | address | lat,lng | city | maps_url (one per line)
+  // Or: name | google_maps_url (will extract coordinates)
+  const handleBulkVenueUpload = async () => {
+    if (pin !== '1823') return alert('PIN gerekli!')
+    if (!bulkVenueText.trim()) return alert('Mekan verileri gerekli!')
+
+    setBulkVenueLoading(true)
+    const lines = bulkVenueText.trim().split('\n').filter(l => l.trim())
+    const venues: any[] = []
+    let errors = 0
+
+    for (const line of lines) {
+      const parts = line.split('|').map(p => p.trim())
+      if (parts.length < 2) {
+        errors++
+        continue
+      }
+
+      const name = parts[0]
+      let address = parts[1] || ''
+      let lat: number | undefined
+      let lng: number | undefined
+      let city = ''
+      let mapsUrl = ''
+
+      // Check if second part is a Google Maps URL
+      if (parts[1].includes('google.com/maps') || parts[1].includes('goo.gl')) {
+        mapsUrl = parts[1]
+        // Try to extract coordinates from URL
+        const destMatch = mapsUrl.match(/destination=([0-9.-]+),([0-9.-]+)/)
+        const atMatch = mapsUrl.match(/@([0-9.-]+),([0-9.-]+)/)
+        const queryMatch = mapsUrl.match(/query=([0-9.-]+),([0-9.-]+)/)
+
+        if (destMatch) {
+          lat = parseFloat(destMatch[1])
+          lng = parseFloat(destMatch[2])
+        } else if (atMatch) {
+          lat = parseFloat(atMatch[1])
+          lng = parseFloat(atMatch[2])
+        } else if (queryMatch) {
+          lat = parseFloat(queryMatch[1])
+          lng = parseFloat(queryMatch[2])
+        }
+
+        city = parts[2] || ''
+      } else {
+        // Standard format: name | address | lat,lng | city | maps_url
+        if (parts[2] && parts[2].includes(',')) {
+          const coords = parts[2].split(',').map(c => parseFloat(c.trim()))
+          if (coords.length === 2 && !isNaN(coords[0]) && !isNaN(coords[1])) {
+            lat = coords[0]
+            lng = coords[1]
+          }
+        }
+        city = parts[3] || ''
+        mapsUrl = parts[4] || ''
+      }
+
+      venues.push({
+        name,
+        address,
+        lat,
+        lng,
+        city,
+        maps_url: mapsUrl || null
+      })
+    }
+
+    if (venues.length === 0) {
+      setBulkVenueLoading(false)
+      return alert('Geçerli mekan bulunamadı!')
+    }
+
+    // Upsert venues (update if name exists)
+    let inserted = 0
+    for (const venue of venues) {
+      const { error } = await supabase.from('venues').upsert(venue, { onConflict: 'name' })
+      if (!error) inserted++
+    }
+
+    setBulkVenueLoading(false)
+    setShowBulkVenueModal(false)
+    setBulkVenueText('')
+    alert(`✅ ${inserted} mekan eklendi/güncellendi! (${errors} hata)`)
+    fetchResources()
+  }
+
   const handleChange = (e: any) => {
     const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value
     setFormData({ ...formData, [e.target.name]: value })
@@ -725,6 +819,23 @@ export default function Admin() {
                     )}
                   </div>
                 )}
+              </div>
+
+              {/* --- BULK VENUE UPLOAD BUTTON --- */}
+              <div className="bg-purple-50 dark:bg-purple-900/20 p-4 rounded-2xl shadow border border-purple-100 dark:border-purple-800">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-bold text-purple-800 dark:text-purple-300 flex items-center gap-2"><MapPin size={18} /> Toplu Mekan Yükle</h3>
+                    <p className="text-xs text-gray-600 dark:text-gray-400">Birden fazla mekanı koordinatlarıyla birlikte tek seferde yükleyin.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowBulkVenueModal(true)}
+                    className="px-4 py-2 bg-purple-600 text-white rounded-lg font-bold hover:bg-purple-700 text-sm flex items-center gap-2"
+                  >
+                    <Upload size={16} /> Mekan Yükle
+                  </button>
+                </div>
               </div>
 
               {/* --- FORM SECTION --- */}
@@ -1072,6 +1183,56 @@ export default function Admin() {
             </div>
           )}
 
+        </div>
+      )}
+
+      {/* BULK VENUE UPLOAD MODAL */}
+      {showBulkVenueModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-2xl max-h-[80vh] overflow-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white">📍 Toplu Mekan Yükle</h3>
+              <button onClick={() => setShowBulkVenueModal(false)} className="text-gray-500 hover:text-gray-700">✕</button>
+            </div>
+
+            <div className="text-sm text-gray-600 dark:text-gray-400 mb-4 space-y-2">
+              <p className="font-bold">Format (her satıra bir mekan):</p>
+              <code className="block bg-gray-100 dark:bg-gray-700 p-2 rounded text-xs">
+                Mekan Adı | Adres | lat,lng | Şehir | maps_url
+              </code>
+              <p>veya Google Maps linki ile:</p>
+              <code className="block bg-gray-100 dark:bg-gray-700 p-2 rounded text-xs">
+                Mekan Adı | https://www.google.com/maps/... | Şehir
+              </code>
+              <p className="text-[10px] text-gray-400">Koordinatlar Maps linkinden otomatik çıkarılır</p>
+            </div>
+
+            <textarea
+              value={bulkVenueText}
+              onChange={(e) => setBulkVenueText(e.target.value)}
+              placeholder={`Congresium Ankara | Üniversiteler Mah. Bilkent, Ankara | 39.8915,32.7892 | Ankara
+6:45 KK Ankara | https://www.google.com/maps/place/.../@39.9208,32.8541 | Ankara
+Holly Stone | Kızılay, Ankara | 39.9179,32.8639 | Ankara | https://goo.gl/maps/...`}
+              className="w-full h-48 border p-3 rounded-lg text-sm font-mono dark:bg-gray-700 dark:border-gray-600"
+            />
+
+            <div className="flex justify-end gap-2 mt-4">
+              <button
+                onClick={() => setShowBulkVenueModal(false)}
+                className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg"
+              >
+                İptal
+              </button>
+              <button
+                onClick={handleBulkVenueUpload}
+                disabled={bulkVenueLoading || !bulkVenueText.trim()}
+                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 flex items-center gap-2"
+              >
+                {bulkVenueLoading ? <span className="animate-spin">⏳</span> : <MapPin size={16} />}
+                Yükle
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -163,3 +163,20 @@ FROM event_reviews
 WHERE status = 'approved'
 GROUP BY event_id;
 
+-- =============================================
+-- PHASE 6: MULTI-SOURCE TICKETS & VENUE URLS
+-- =============================================
+
+-- Add ticket_sources to events - different providers for same event
+-- Format: [{"source": "bubilet", "url": "...", "price": "250 TL"}, {"source": "biletinial", "url": "...", "price": "280 TL"}]
+ALTER TABLE events 
+ADD COLUMN IF NOT EXISTS ticket_sources JSONB DEFAULT '[]'::jsonb;
+
+-- Add maps_url to venues for easier coordinate extraction
+ALTER TABLE venues
+ADD COLUMN IF NOT EXISTS maps_url TEXT;
+
+-- Add city column to venues for filtering
+ALTER TABLE venues
+ADD COLUMN IF NOT EXISTS city TEXT;
+
