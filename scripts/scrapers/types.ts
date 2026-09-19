@@ -19,6 +19,7 @@ export interface Event {
     description?: string;
     image_url?: string;
     source_url: string;
+    ticket_url?: string;
     lat?: number;
     lng?: number;
     maps_url?: string;

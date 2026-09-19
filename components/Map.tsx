@@ -11,7 +11,7 @@ const createDynamicIcon = (text: string, isSelected: boolean, count?: number) =>
   return L.divIcon({
     className: 'custom-icon',
     html: `<div class="map-marker ${isSelected ? 'selected' : ''}">${text}${count && count > 1 ? ` <span class="marker-count">+${count - 1}</span>` : ''}</div>`,
-    iconSize: [null as any, 30],
+    iconSize: [60, 30],
     iconAnchor: [30, 35]
   })
 }
@@ -65,6 +65,7 @@ interface MapProps {
   manualLocation: any;
   onEventSelect: (event: any) => void;
   onVenueClick?: (venueName: string, events: any[]) => void;
+  onLocationFound?: (latlng: L.LatLng) => void;
 }
 
 export default function Map({ events, selectedEvent, triggerLocate, markerMode, manualLocation, onEventSelect, onVenueClick }: MapProps) {

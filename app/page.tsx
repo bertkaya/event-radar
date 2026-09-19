@@ -7,6 +7,8 @@ import { supabase } from '@/lib/supabase'
 import { MapPin, Calendar, Navigation, Filter, Star, LogOut, Heart, Share2, Ticket, Map, Ban, X, Clock, CheckCircle, ChevronDown, Globe, ArrowUpDown, Banknote, CalendarPlus, Music, Send, Store, Mail, Utensils, Sparkles, Info, Instagram, Twitter, MessageCircle, Download, User, Bell, Check, Plus } from 'lucide-react'
 import Link from 'next/link'
 import SkeletonCard from '@/components/Skeleton'
+import type { Event } from '@/lib/types'
+import { getDistanceFromLatLonInKm, formatPrice } from '@/lib/utils'
 
 const MapWithNoSSR = dynamic(() => import('@/components/Map'), {
   ssr: false,
@@ -20,7 +22,6 @@ const PRESET_LOCATIONS = [
   { name: '• Kızılay', lat: 39.9208, lng: 32.8541, zoom: 15 },
   { name: '• Ümitköy / Çayyolu', lat: 39.8914, lng: 32.7103, zoom: 13 },
   { name: 'İstanbul', lat: 41.0082, lng: 28.9784, zoom: 11 },
-  { name: 'İzmir', lat: 38.4237, lng: 27.1428, zoom: 12 },
   { name: 'İzmir', lat: 38.4237, lng: 27.1428, zoom: 12 },
 ]
 
@@ -36,38 +37,10 @@ const MOODS: { [key: string]: string[] } = {
   'Kendini Geliştir 🧠': ['Workshop', 'Sanat']
 }
 
-function getDistanceFromLatLonInKm(lat1: number, lon1: number, lat2: number, lon2: number) {
-  var R = 6371; // Radius of the earth in km
-  var dLat = deg2rad(lat2 - lat1);  // deg2rad below
-  var dLon = deg2rad(lon2 - lon1);
-  var a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) *
-    Math.sin(dLon / 2) * Math.sin(dLon / 2)
-    ;
-  var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  var d = R * c; // Distance in km
-  return d;
-}
-function deg2rad(deg: number) {
-  return deg * (Math.PI / 180)
-}
-
-// Fiyatı TL formatında göster (₺ yerine sadece TL)
-function formatPrice(price: string | undefined | null): string {
-  if (!price) return '';
-  // ₺ işaretini TL ile değiştir
-  let formatted = price.replace(/₺/g, 'TL');
-  // Eğer sadece sayı varsa TL ekle
-  if (/^\d[\d.,\s]*$/.test(formatted.trim())) {
-    formatted = formatted.trim() + ' TL';
-  }
-  return formatted;
-}
 
 export default function Home() {
-  const [events, setEvents] = useState<any[]>([])
-  const [allEvents, setAllEvents] = useState<any[]>([])
+  const [events, setEvents] = useState<Event[]>([])
+  const [allEvents, setAllEvents] = useState<Event[]>([])
   const [loading, setLoading] = useState(true) // Yükleniyor durumu
   const [userPrefs, setUserPrefs] = useState<string[]>([])
   const [favorites, setFavorites] = useState<number[]>([])

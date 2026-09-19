@@ -5,9 +5,11 @@ import { BiletinialScraper } from './scrapers/biletinial.js';
 import { PassoScraper } from './scrapers/passo.js';
 import { BiletixScraper } from './scrapers/biletix.js';
 import { BubiletScraper } from './scrapers/bubilet.js';
+import { LavarlaScraper } from './scrapers/lavarla.js';
 import { Scraper, Event } from './scrapers/types.js';
 import { parsePrice } from './scrapers/utils.js';
 
+dotenv.config({ path: '.env.local' });
 dotenv.config();
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -52,7 +54,8 @@ async function saveEvents(events: Event[], source: string): Promise<{ new: numbe
             const payload = {
                 ...event,
                 rules: rulesPayload,
-                min_price: minPrice
+                min_price: minPrice,
+                is_approved: false // All scraped events enter pending approval queue for admin review
             };
 
             // Upsert
@@ -120,6 +123,7 @@ async function runScraper(scraper: Scraper): Promise<{ name: string, events: num
 
 async function runAll() {
     const allScrapers: { [key: string]: Scraper } = {
+        'lavarla': LavarlaScraper,
         'biletinial': BiletinialScraper,
         'passo': PassoScraper,
         'biletix': BiletixScraper,

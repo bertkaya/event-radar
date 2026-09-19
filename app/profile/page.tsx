@@ -6,18 +6,7 @@ import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { LogOut, MapPin, Calendar, Heart, ArrowLeft, Settings, Star, X, Plus, History, Music, Youtube, Link as LinkIcon, Save } from 'lucide-react'
 import Link from 'next/link'
-
-// Fiyatı TL formatında göster (₺ yerine sadece TL)
-function formatPrice(price: string | undefined | null): string {
-  if (!price) return '';
-  // ₺ işaretini TL ile değiştir
-  let formatted = price.replace(/₺/g, 'TL');
-  // Eğer sadece sayı varsa TL ekle
-  if (/^\d[\d.,\s]*$/.test(formatted.trim())) {
-    formatted = formatted.trim() + ' TL';
-  }
-  return formatted;
-}
+import { formatPrice } from '@/lib/utils'
 
 export default function Profile() {
   const [user, setUser] = useState<any>(null)

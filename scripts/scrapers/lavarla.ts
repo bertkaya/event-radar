@@ -3,6 +3,19 @@ import * as cheerio from 'cheerio';
 import { Scraper, Event } from './types.js';
 import { normalizeDate, sleep } from './utils.js';
 
+function detectCategory(title: string, description: string = ''): string {
+    const text = (title + ' ' + description).toLowerCase();
+    if (text.includes('konser') || text.includes('müzik') || text.includes('sahne') || text.includes('live')) return 'Konser';
+    if (text.includes('tiyatro') || text.includes('oyun') || text.includes('müzikal')) return 'Tiyatro';
+    if (text.includes('stand-up') || text.includes('stand up') || text.includes('komedi')) return 'Stand-Up';
+    if (text.includes('sergi') || text.includes('galeri')) return 'Sergi';
+    if (text.includes('workshop') || text.includes('atölye') || text.includes('kurs')) return 'Workshop';
+    if (text.includes('sinema') || text.includes('film') || text.includes('gösterim')) return 'Sinema';
+    if (text.includes('festival')) return 'Festival';
+    if (text.includes('söyleşi') || text.includes('panel') || text.includes('konferans')) return 'Söyleşi';
+    return 'Etkinlik';
+}
+
 export const LavarlaScraper: Scraper = {
     name: 'Lavarla',
     async scrape(): Promise<Event[]> {
@@ -24,11 +37,11 @@ export const LavarlaScraper: Scraper = {
                 if (u !== 'https://lavarla.com/etkinlik/' && !u.includes('/page/')) urls.push(u);
             });
 
-            console.log(`[Lavarla] Found ${urls.length} events in sitemap. Processing first 15...`);
+            console.log(`[Lavarla] Found ${urls.length} events in sitemap. Processing first 35...`);
 
             // 2. Process URLs
-            for (const url of urls.slice(0, 15)) {
-                await sleep(500); // Politeness delay
+            for (const url of urls.slice(0, 35)) {
+                await sleep(300); // Politeness delay
                 try {
                     const pageRes = await fetch(url, {
                         headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 ' }
@@ -55,28 +68,33 @@ export const LavarlaScraper: Scraper = {
                     const cleanEnd = normalizeDate(endDateMeta);
 
                     const startTime = cleanStart ? new Date(cleanStart).toISOString() : '';
-                    // If startTime is invalid (empty), skip
                     if (!startTime) continue;
 
                     const endTime = cleanEnd ? new Date(cleanEnd).toISOString() : undefined;
 
                     // Venue
-                    const venueName = $('.event_location_name').text().trim() || $('.evo_location_name').text().trim() || $('meta[name="og:site_name"]').attr('content') || 'Unknown Venue';
+                    const venueName = $('.event_location_name').text().trim() || $('.evo_location_name').text().trim() || $('meta[name="og:site_name"]').attr('content') || 'Bilinmeyen Mekan';
                     const address = $('.evo_location_address').text().trim();
 
                     // Description & Image
                     const description = $('.eventon_desc_in').html()?.trim() || $('meta[property="og:description"]').attr('content');
                     const imageUrl = $('meta[itemprop="image"]').attr('content') || $('.evocard_main_image').data('f') as string;
 
+                    // Ticket Link
+                    const ticketUrl = $('a[href*="bilet"], a.evcal_evdata_btn').attr('href') || url;
+
                     // Geo
-                    let lat: number | undefined;
-                    let lng: number | undefined;
+                    let lat: number | undefined = 39.9334;
+                    let lng: number | undefined = 32.8597;
                     const latLngData = $('.evcal_location').data('latlng') as string;
                     if (typeof latLngData === 'string' && latLngData.includes(',')) {
                         const parts = latLngData.split(',');
                         lat = parseFloat(parts[0]);
                         lng = parseFloat(parts[1]);
                     }
+
+                    const rawDescText = $('.eventon_desc_in').text() || '';
+                    const category = detectCategory(title, rawDescText);
 
                     // Construct Event
                     const event: Event = {
@@ -88,17 +106,17 @@ export const LavarlaScraper: Scraper = {
                         description: description || undefined,
                         image_url: imageUrl,
                         source_url: url,
+                        ticket_url: ticketUrl,
                         lat,
                         lng,
-                        is_approved: false, // Default
-                        category: 'Etkinlik',
-                        rules: [], // Lavarla doesn't seem to have strict rules block
-                        ticket_details: [] // Lavarla is aggregation, usually no direct tickets or just external link
-                        // TODO: Extract external ticket link if present
+                        is_approved: false, // Default to unapproved for admin review
+                        category,
+                        rules: [],
+                        ticket_details: []
                     };
 
                     events.push(event);
-                    console.log(`[Lavarla] Parsed: ${title}`);
+                    console.log(`[Lavarla] Parsed: [${category}] ${title}`);
 
                 } catch (e) {
                     console.error(`[Lavarla] Error processing ${url}:`, e);

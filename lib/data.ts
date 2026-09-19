@@ -1,37 +1,59 @@
 // lib/data.ts
+// Development / fallback seed data (not used in production — Supabase is the live source)
 
-export const fakeEvents = [
+import type { Event } from './types'
+
+export const fakeEvents: Event[] = [
   {
     id: 1,
     title: 'Jazz ve Şarap Gecesi',
     venue_name: 'The Jazz Bar, Beyoğlu',
     category: 'Müzik',
-    start_time: '2023-11-20T20:00:00',
+    start_time: '2026-10-10T20:00:00',
+    end_time: '2026-10-10T23:30:00',
     lat: 41.0335,
-    lng: 28.9778, // Beyoğlu
+    lng: 28.9778,
     price: '250 TL',
-    is_approved: true
+    min_price: 250,
+    ticket_url: 'https://biletix.com',
+    image_url: undefined,
+    is_approved: true,
+    is_featured: false,
+    sold_out: false,
   },
   {
     id: 2,
     title: 'Stand-up Gösterisi',
     venue_name: 'BKM Mutfak, Beşiktaş',
-    category: 'Komedi',
-    start_time: '2023-11-21T21:00:00',
+    category: 'Stand-Up',
+    start_time: '2026-10-11T21:00:00',
+    end_time: '2026-10-11T22:30:00',
     lat: 41.0422,
-    lng: 29.0060, // Beşiktaş
+    lng: 29.006,
     price: '150 TL',
-    is_approved: true
+    min_price: 150,
+    ticket_url: 'https://biletix.com',
+    image_url: undefined,
+    is_approved: true,
+    is_featured: false,
+    sold_out: false,
   },
   {
     id: 3,
     title: 'Modern Sanat Sergisi',
     venue_name: 'İstanbul Modern',
     category: 'Sanat',
-    start_time: '2023-11-22T10:00:00',
+    start_time: '2026-10-12T10:00:00',
+    end_time: '2026-10-12T20:00:00',
     lat: 41.0258,
-    lng: 28.9835, // Karaköy
+    lng: 28.9835,
     price: 'Ücretsiz',
-    is_approved: true
-  }
-];
+    min_price: 0,
+    ticket_url: undefined,
+    image_url: undefined,
+    is_approved: true,
+    is_featured: true,
+    feature_priority: 1,
+    sold_out: false,
+  },
+]
