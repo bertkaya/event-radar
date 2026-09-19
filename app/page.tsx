@@ -4,12 +4,21 @@
 import { useState, useEffect } from 'react'
 import dynamic from 'next/dynamic'
 import { supabase } from '@/lib/supabase'
-import { MapPin, Calendar, Navigation, Filter, Star, LogOut, Heart, Share2, Ticket, Map, Ban, X, Clock, CheckCircle, ChevronDown, Globe, ArrowUpDown, Banknote, CalendarPlus, Music, Send, Store, Mail, Utensils, Sparkles, Info, Instagram, Twitter, MessageCircle, Download, User, Bell, Check, Plus } from 'lucide-react'
+import { 
+  MapPin, Calendar, Navigation, Filter, Star, LogOut, Heart, Share2, Ticket, Map, Ban, X, Clock, 
+  CheckCircle, ChevronDown, Globe, ArrowUpDown, Banknote, CalendarPlus, Music, Send, Store, Mail, 
+  Utensils, Sparkles, Info, Instagram, Twitter, MessageCircle, Download, User, Bell, Check, Plus,
+  Compass, Shuffle, Moon, Zap, Users, Flame, Smile, Search, HelpCircle, Footprints, Car
+} from 'lucide-react'
 import Link from 'next/link'
 import SkeletonCard from '@/components/Skeleton'
 import type { Event } from '@/lib/types'
 import { fakeEvents } from '@/lib/data'
 import { getDistanceFromLatLonInKm, formatPrice } from '@/lib/utils'
+import { deduplicateEvents } from '@/lib/dedup'
+import { rankEvents, ScoredEvent } from '@/lib/recommendation'
+import { generateNightPlans, NightPlan } from '@/lib/night_planner'
+import { parseNaturalLanguageQuery } from '@/lib/nlp_filter'
 
 const MapWithNoSSR = dynamic(() => import('@/components/Map'), {
   ssr: false,
@@ -40,7 +49,7 @@ const MOODS: { [key: string]: string[] } = {
 
 
 export default function Home() {
-  const [events, setEvents] = useState<Event[]>([])
+  const [events, setEvents] = useState<ScoredEvent[]>([])
   const [allEvents, setAllEvents] = useState<Event[]>([])
   const [loading, setLoading] = useState(true) // Yükleniyor durumu
   const [userPrefs, setUserPrefs] = useState<string[]>([])
@@ -48,10 +57,39 @@ export default function Home() {
   const [favCounts, setFavCounts] = useState<{ [key: number]: number }>({})
   const [selectedEvent, setSelectedEvent] = useState<any>(null)
 
+  // 11 Core Product Modes
+  const [discoveryMode, setDiscoveryMode] = useState<
+    'all' | 'tonight' | 'afterwork' | 'tomorrow' | 'weekend' | 'nearme' | 'date' | 'friends' | 'solo' | 'family' | 'free'
+  >('all')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null)
+
+  // AI Night Planner State
+  const [showNightPlannerModal, setShowNightPlannerModal] = useState(false)
+  const [nightPlans, setNightPlans] = useState<NightPlan[]>([])
+  const [plannerInput, setPlannerInput] = useState<{
+    city: string;
+    budget: number;
+    partyType: 'date' | 'friends' | 'solo' | 'family';
+    mood: string;
+  }>({
+    city: 'İstanbul',
+    budget: 1500,
+    partyType: 'date',
+    mood: 'Date Night 🍷'
+  })
+
+  // Surprise Me State
+  const [showSurpriseModal, setShowSurpriseModal] = useState(false)
+  const [surpriseEvent, setSurpriseEvent] = useState<ScoredEvent | null>(null)
+
+  // Mobile View Switcher (Feed vs Map)
+  const [mobileTab, setMobileTab] = useState<'feed' | 'map'>('feed')
+
   const [activeCategory, setActiveCategory] = useState<string>('Tümü')
-  const [activeMood, setActiveMood] = useState<string>('Tümü') // YENİ: Mood Filtresi
+  const [activeMood, setActiveMood] = useState<string>('Tümü') // Mood Filtresi
   const [timeFilter, setTimeFilter] = useState<'all' | 'today' | 'tomorrow' | 'weekend'>('all')
-  const [sortBy, setSortBy] = useState<'date-asc' | 'date-desc' | 'popular'>('date-asc')
+  const [sortBy, setSortBy] = useState<'date-asc' | 'date-desc' | 'popular' | 'match'>('match')
   const [priceFilter, setPriceFilter] = useState<'all' | 'free'>('all')
   const [priceRange, setPriceRange] = useState<number[]>([0, 5000]) // [min, max]
   const [cityFilter, setCityFilter] = useState<{ lat: number, lng: number } | null>(null) // City Filter (Center)
@@ -120,7 +158,9 @@ export default function Home() {
   }
 
   useEffect(() => { fetchData() }, [])
-  useEffect(() => { applyFilters() }, [activeCategory, activeMood, timeFilter, sortBy, priceFilter, allEvents, favCounts, cityFilter, priceRange])
+  useEffect(() => { 
+    applyFilters() 
+  }, [activeCategory, activeMood, timeFilter, discoveryMode, searchQuery, sortBy, priceFilter, allEvents, favCounts, cityFilter, priceRange, userCoords, userPrefs])
 
   const fetchData = async () => {
     setLoading(true)
@@ -136,12 +176,14 @@ export default function Home() {
       .select('*, organizers(name, logo_url)')
       .eq('is_approved', true)
       .gte('start_time', new Date().toISOString())
-      // We do client-side filtering for price for now or simple GTE/LTE
-      // But query can filter too:
       .order('start_time', { ascending: true });
 
     const activeList = (eventsData && eventsData.length > 0) ? eventsData : fakeEvents;
-    const jitteredEvents = activeList.map(ev => ({
+    
+    // 1. Intelligent Deduplication across ticket vendors (Biletix, Passo, Bubilet, Biletinial)
+    const deduplicated = deduplicateEvents(activeList);
+
+    const jitteredEvents = deduplicated.map(ev => ({
       ...ev,
       lat: ev.lat + (Math.random() - 0.5) * 0.0002,
       lng: ev.lng + (Math.random() - 0.5) * 0.0002
@@ -153,37 +195,99 @@ export default function Home() {
   const applyFilters = () => {
     let filtered = [...allEvents]
 
-    // Kategori
+    // 1. Natural Language / Text Search
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim()
+      filtered = filtered.filter(e => 
+        (e.title + ' ' + (e.description || '') + ' ' + e.venue_name + ' ' + (e.address || '') + ' ' + e.category + ' ' + (e.ai_mood || '')).toLowerCase().includes(q)
+      )
+    }
+
+    // 2. 11 Core Discovery Modes
+    if (discoveryMode === 'tonight') {
+      const today = new Date().toDateString()
+      filtered = filtered.filter(e => new Date(e.start_time).toDateString() === today)
+    } else if (discoveryMode === 'afterwork') {
+      // 18:00 - 23:00 strict after-work window
+      const today = new Date().toDateString()
+      filtered = filtered.filter(e => {
+        const d = new Date(e.start_time)
+        const hour = d.getHours()
+        return d.toDateString() === today && hour >= 18 && hour <= 23
+      })
+    } else if (discoveryMode === 'tomorrow') {
+      const tomorrow = new Date()
+      tomorrow.setDate(tomorrow.getDate() + 1)
+      filtered = filtered.filter(e => new Date(e.start_time).toDateString() === tomorrow.toDateString())
+    } else if (discoveryMode === 'weekend') {
+      const now = new Date();
+      const dayOfWeek = now.getDay();
+      let saturday: Date, sunday: Date;
+      if (dayOfWeek === 6) {
+        saturday = new Date(now);
+        sunday = new Date(now); sunday.setDate(now.getDate() + 1);
+      } else if (dayOfWeek === 0) {
+        saturday = new Date(now); saturday.setDate(now.getDate() - 1);
+        sunday = new Date(now);
+      } else {
+        const daysUntilSaturday = 6 - dayOfWeek;
+        saturday = new Date(now); saturday.setDate(now.getDate() + daysUntilSaturday);
+        sunday = new Date(saturday); sunday.setDate(saturday.getDate() + 1);
+      }
+      filtered = filtered.filter(e => {
+        const dStr = new Date(e.start_time).toDateString()
+        return dStr === saturday.toDateString() || dStr === sunday.toDateString()
+      })
+    } else if (discoveryMode === 'nearme' && userCoords) {
+      filtered = filtered.filter(e => {
+        const dist = getDistanceFromLatLonInKm(userCoords.lat, userCoords.lng, e.lat, e.lng)
+        return dist <= 15
+      })
+    } else if (discoveryMode === 'date') {
+      filtered = filtered.filter(e => 
+        (e.ai_mood && e.ai_mood.includes('Date')) || ['Müzik', 'Tiyatro', 'Sinema', 'Sanat'].includes(e.category)
+      )
+    } else if (discoveryMode === 'friends') {
+      filtered = filtered.filter(e => 
+        (e.ai_mood && e.ai_mood.includes('Kopmalık')) || ['Müzik', 'Stand-Up', 'Festival', 'Parti'].includes(e.category)
+      )
+    } else if (discoveryMode === 'solo') {
+      filtered = filtered.filter(e => 
+        (e.ai_mood && e.ai_mood.includes('Sanat')) || ['Sanat', 'Workshop', 'Sinema', 'Eğitim'].includes(e.category)
+      )
+    } else if (discoveryMode === 'family') {
+      filtered = filtered.filter(e => 
+        (e.ai_mood && e.ai_mood.includes('Aile')) || ['Aile', 'Çocuk', 'Sinema', 'Workshop'].includes(e.category)
+      )
+    } else if (discoveryMode === 'free') {
+      filtered = filtered.filter(e => e.price?.toLowerCase().includes('ücretsiz') || e.price === '0' || e.min_price === 0)
+    }
+
+    // 3. Category Filter
     if (activeCategory !== 'Tümü') filtered = filtered.filter(e => e.category === activeCategory)
 
-    // Mood Filtresi
+    // 4. Mood Filter
     if (activeMood !== 'Tümü') {
-      // Phase 2: Use AI Mood if available
       filtered = filtered.filter(e => {
         if (e.ai_mood) return e.ai_mood === activeMood
-
-        // Fallback to legacy keyword matching
         const keywords = MOODS[activeMood as keyof typeof MOODS] || []
-        const text = (e.title + ' ' + e.description + ' ' + e.category).toLowerCase()
+        const text = (e.title + ' ' + (e.description || '') + ' ' + e.category).toLowerCase()
         return keywords.some(k => text.includes(k.toLowerCase()))
       })
     }
 
-    // Fiyat
+    // 5. Price Filter
     if (priceFilter === 'free') filtered = filtered.filter(e => e.price?.toLowerCase().includes('ücretsiz') || e.price === '0' || e.price === '')
 
     // Min Price Range Filter
-    // Filter out events where min_price is known and exceeds the range max
-    // Keep events with null min_price (unless strictly filtering) or assume they are within range?
-    // Let's hide events that have a min_price > range.max
     filtered = filtered.filter(e => {
       if (e.min_price !== null && e.min_price !== undefined) {
         return e.min_price <= priceRange[1];
       }
-      return true; // Keep events with unknown prices for now, or filter them? Let's keep.
+      return true;
     });
 
-    // Şehir Filtresi (50km yarıçap)
+    // 6. City Filter (50km radius)
     if (cityFilter) {
       filtered = filtered.filter(e => {
         const dist = getDistanceFromLatLonInKm(cityFilter.lat, cityFilter.lng, e.lat, e.lng)
@@ -191,59 +295,91 @@ export default function Home() {
       })
     }
 
-    // 18-23 Zaman Filtresi
-    if (timeFilter !== 'all') {
+    // 7. Time Filter (Legacy fallback buttons)
+    if (timeFilter !== 'all' && discoveryMode === 'all') {
       const today = new Date();
       const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
-
-      // Calculate next weekend (upcoming Saturday and Sunday)
-      const getNextWeekend = () => {
-        const now = new Date();
-        const dayOfWeek = now.getDay(); // 0=Sunday, 6=Saturday
-        let saturday, sunday;
-
-        if (dayOfWeek === 6) { // Today is Saturday
-          saturday = new Date(now);
-          sunday = new Date(now); sunday.setDate(now.getDate() + 1);
-        } else if (dayOfWeek === 0) { // Today is Sunday
-          saturday = new Date(now); saturday.setDate(now.getDate() - 1);
-          sunday = new Date(now);
-        } else { // Weekday - get next Saturday
-          const daysUntilSaturday = 6 - dayOfWeek;
-          saturday = new Date(now); saturday.setDate(now.getDate() + daysUntilSaturday);
-          sunday = new Date(saturday); sunday.setDate(saturday.getDate() + 1);
-        }
-        return { saturday, sunday };
-      };
 
       filtered = filtered.filter(e => {
         const eventDate = new Date(e.start_time);
         if (timeFilter === 'today') return eventDate.toDateString() === today.toDateString();
         if (timeFilter === 'tomorrow') return eventDate.toDateString() === tomorrow.toDateString();
-        if (timeFilter === 'weekend') {
-          const { saturday, sunday } = getNextWeekend();
-          return eventDate.toDateString() === saturday.toDateString() || eventDate.toDateString() === sunday.toDateString();
-        }
         return true;
       });
     }
 
-    // Sıralama - Featured etkinlikler her zaman önce
-    filtered.sort((a, b) => {
-      // Featured etkinlikler önce
-      if (a.is_featured && !b.is_featured) return -1
-      if (!a.is_featured && b.is_featured) return 1
-      // İkisi de featured ise, priority'ye göre
-      if (a.is_featured && b.is_featured) {
-        return (b.feature_priority || 0) - (a.feature_priority || 0)
-      }
-      // Normal sıralama
-      if (sortBy === 'date-asc') return new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
-      else if (sortBy === 'date-desc') return new Date(b.start_time).getTime() - new Date(a.start_time).getTime()
-      else if (sortBy === 'popular') { const countA = favCounts[a.id] || 0; const countB = favCounts[b.id] || 0; return countB - countA }
-      return 0
+    // 8. Recommendation & Personalization Engine Ranking
+    const userSignals = {
+      preferences: userPrefs,
+      favoriteEventIds: favorites,
+      userLat: userCoords?.lat,
+      userLng: userCoords?.lng,
+      maxBudget: priceRange[1],
+      activeMood: activeMood !== 'Tümü' ? activeMood : undefined
+    }
+
+    const scored = rankEvents(filtered, userSignals)
+
+    // Secondary Sort override if explicitly requested
+    if (sortBy === 'date-asc') {
+      scored.sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
+    } else if (sortBy === 'date-desc') {
+      scored.sort((a, b) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime())
+    } else if (sortBy === 'popular') {
+      scored.sort((a, b) => (favCounts[b.id] || 0) - (favCounts[a.id] || 0))
+    }
+
+    setEvents(scored)
+  }
+
+  // AI Night Planner Trigger
+  const handleOpenNightPlanner = () => {
+    const plans = generateNightPlans(allEvents, {
+      city: currentLocName,
+      budget: priceRange[1] || 1500,
+      partyType: plannerInput.partyType,
+      mood: activeMood !== 'Tümü' ? activeMood : undefined
     })
-    setEvents(filtered)
+    setNightPlans(plans)
+    setShowNightPlannerModal(true)
+  }
+
+  // Surprise Me Trigger
+  const handleSurpriseMe = () => {
+    if (events.length === 0) return
+    const randomIndex = Math.floor(Math.random() * Math.min(events.length, 5))
+    const chosen = events[randomIndex]
+    setSurpriseEvent(chosen)
+    setShowSurpriseModal(true)
+  }
+
+  // NLP Search Handler
+  const handleNlpSearch = (rawPrompt: string) => {
+    setSearchQuery(rawPrompt)
+    const parsed = parseNaturalLanguageQuery(rawPrompt)
+    if (parsed.city) {
+      const matchedLoc = PRESET_LOCATIONS.find(l => l.name.toLowerCase().includes(parsed.city!.toLowerCase()))
+      if (matchedLoc) handleSelectLocation(matchedLoc)
+    }
+    if (parsed.mood) setActiveMood(parsed.mood)
+    if (parsed.timeFilter) {
+      if (parsed.timeFilter === 'today') setDiscoveryMode('tonight')
+      else setDiscoveryMode(parsed.timeFilter as any)
+    }
+    if (parsed.freeOnly) setPriceFilter('free')
+    if (parsed.maxBudget) setPriceRange([0, parsed.maxBudget])
+  }
+
+  // Recovery Action Handlers for Empty State
+  const resetAllFilters = () => {
+    setDiscoveryMode('all')
+    setActiveCategory('Tümü')
+    setActiveMood('Tümü')
+    setTimeFilter('all')
+    setPriceFilter('all')
+    setPriceRange([0, 5000])
+    setCityFilter(null)
+    setSearchQuery('')
   }
 
   const toggleFavorite = async (e: any, eventId: number, category: string) => {
@@ -542,6 +678,169 @@ END:VCALENDAR`;
         </div>
       )}
 
+      {/* AI NIGHT PLANNER MODAL */}
+      {showNightPlannerModal && (
+        <div className="fixed inset-0 z-[2300] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-in fade-in">
+          <div className="bg-white dark:bg-gray-900 w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden max-h-[88vh] flex flex-col border border-gray-200 dark:border-gray-800">
+            <div className="p-5 border-b dark:border-gray-800 bg-gradient-to-r from-red-950 via-gray-900 to-black text-white flex justify-between items-center shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-brand/30 rounded-xl text-brand-light"><Moon size={22} /></div>
+                <div>
+                  <h3 className="font-black text-lg tracking-tight">BU AKŞAMI PLANLA (NIGHT PLANNER)</h3>
+                  <p className="text-xs text-gray-400">Yemekten etkinliğe ve gece kapanışına kadar eksiksiz rota</p>
+                </div>
+              </div>
+              <button onClick={() => setShowNightPlannerModal(false)} className="p-2 text-gray-400 hover:text-white"><X size={22} /></button>
+            </div>
+
+            {/* Planner Inputs Bar */}
+            <div className="p-4 bg-gray-50 dark:bg-gray-800/60 border-b dark:border-gray-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-1.5 font-bold text-gray-600 dark:text-gray-300">
+                <span>Kiminle:</span>
+                <div className="flex bg-white dark:bg-gray-900 p-1 rounded-lg border border-gray-200 dark:border-gray-700">
+                  {(['date', 'friends', 'solo', 'family'] as const).map(type => (
+                    <button
+                      key={type}
+                      onClick={() => {
+                        setPlannerInput(prev => ({ ...prev, partyType: type }));
+                        setNightPlans(generateNightPlans(allEvents, { ...plannerInput, partyType: type }));
+                      }}
+                      className={`px-2.5 py-1 rounded-md capitalize font-bold transition ${plannerInput.partyType === type ? 'bg-brand text-white' : 'text-gray-500'}`}
+                    >
+                      {type === 'date' ? 'Date 🍷' : type === 'friends' ? 'Arkadaşlar 🍻' : type === 'solo' ? 'Yalnız 🎒' : 'Ailece 👨‍👩‍👧'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <button
+                onClick={() => setNightPlans(generateNightPlans(allEvents, plannerInput))}
+                className="bg-brand text-white font-bold px-3 py-1.5 rounded-lg text-xs hover:bg-brand-dark transition flex items-center gap-1 shadow-sm"
+              >
+                <Shuffle size={13} /> Farklı Plan Üret
+              </button>
+            </div>
+
+            {/* Generated Itineraries */}
+            <div className="p-6 overflow-y-auto space-y-6 flex-1 bg-white dark:bg-gray-900">
+              {nightPlans.map((plan) => (
+                <div key={plan.id} className="bg-gray-50 dark:bg-gray-800/50 rounded-2xl border border-gray-200 dark:border-gray-700/80 p-5 shadow-sm space-y-4">
+                  <div className="flex flex-wrap justify-between items-start gap-2 border-b dark:border-gray-700/80 pb-3">
+                    <div>
+                      <span className="text-[10px] font-black uppercase text-brand tracking-wider bg-brand/10 px-2 py-0.5 rounded-full">{plan.mood}</span>
+                      <h4 className="font-black text-lg text-gray-900 dark:text-white mt-1 leading-snug">{plan.planTitle}</h4>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">{plan.tagline}</p>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xs font-black text-brand">{plan.totalEstimatedCost}</div>
+                      <div className="text-[11px] text-gray-400">⏱️ Toplam ~{plan.totalDurationHours} Saat</div>
+                    </div>
+                  </div>
+
+                  {/* Steps Timeline */}
+                  <div className="space-y-4 relative before:absolute before:left-3 before:top-2 before:bottom-2 before:w-0.5 before:bg-gray-200 dark:before:bg-gray-700">
+                    {plan.steps.map((step, sIdx) => (
+                      <div key={sIdx} className="relative pl-8 flex flex-col gap-1">
+                        <div className={`absolute left-1.5 top-1 -translate-x-1/2 w-3.5 h-3.5 rounded-full border-2 border-white dark:border-gray-900 ${step.isMainEvent ? 'bg-brand ring-4 ring-brand/20' : 'bg-gray-400 dark:bg-gray-600'}`} />
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-black text-brand">{step.time}</span>
+                          <span className="text-[11px] font-bold text-gray-400 bg-white dark:bg-gray-800 px-2 py-0.5 rounded border border-gray-100 dark:border-gray-700">{step.estimatedCost}</span>
+                        </div>
+                        <div className="font-bold text-sm text-gray-900 dark:text-white flex items-center gap-1.5">
+                          {step.isMainEvent ? '🎟️' : step.type === 'dinner' ? '🍽️' : step.type === 'coffee' ? '☕' : '🍸'} {step.title}
+                        </div>
+                        <div className="text-xs text-gray-500 font-medium">📍 {step.placeName}</div>
+                        <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5 leading-relaxed">{step.description}</p>
+                        {step.isMainEvent && step.eventRef && (
+                          <div className="mt-2 flex gap-2">
+                            <button
+                              onClick={() => {
+                                setShowNightPlannerModal(false);
+                                onEventSelect(step.eventRef);
+                              }}
+                              className="text-xs bg-brand text-white font-bold px-3 py-1.5 rounded-lg hover:bg-brand-dark transition"
+                            >
+                              Etkinlik Detaylarını Gör
+                            </button>
+                            {step.eventRef.ticket_url && (
+                              <a
+                                href={step.eventRef.ticket_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 font-bold px-3 py-1.5 rounded-lg hover:bg-gray-200 transition"
+                              >
+                                Doğrudan Bilet Al
+                              </a>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SURPRISE ME MODAL */}
+      {showSurpriseModal && surpriseEvent && (
+        <div className="fixed inset-0 z-[2300] flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in">
+          <div className="bg-white dark:bg-gray-900 w-full max-w-md rounded-3xl shadow-2xl overflow-hidden border border-gray-200 dark:border-gray-800 text-center relative flex flex-col max-h-[85vh]">
+            <button onClick={() => setShowSurpriseModal(false)} className="absolute top-4 right-4 z-20 bg-black/60 hover:bg-black text-white p-2 rounded-full transition"><X size={20} /></button>
+
+            <div className="relative h-56 bg-brand overflow-hidden shrink-0">
+              {surpriseEvent.image_url ? (
+                <img src={surpriseEvent.image_url} alt={surpriseEvent.title} className="w-full h-full object-cover" />
+              ) : (
+                <div className="flex items-center justify-center h-full text-white font-black text-3xl">18-23 SÜRPRİZİ</div>
+              )}
+              <div className="absolute top-3 left-3 bg-gradient-to-r from-amber-500 to-orange-500 text-white text-xs font-black px-3 py-1 rounded-full shadow-lg flex items-center gap-1">
+                🎲 BU AKŞAMIN SEÇİMİ
+              </div>
+              <div className="absolute bottom-3 left-3 right-3 flex justify-between items-center text-xs font-black text-white bg-black/60 backdrop-blur px-3 py-1.5 rounded-xl">
+                <span>{surpriseEvent.category} • {surpriseEvent.ai_mood || 'Özel Seçim'}</span>
+                <span className="text-amber-300">🎯 %{surpriseEvent.matchScore} Uyumlu</span>
+              </div>
+            </div>
+
+            <div className="p-6 space-y-4 flex-1 overflow-y-auto text-left">
+              <div>
+                <h3 className="text-xl font-black text-gray-900 dark:text-white leading-tight">{surpriseEvent.title}</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 flex items-center gap-1">📍 {surpriseEvent.venue_name}</p>
+                <p className="text-xs text-brand font-bold mt-1">🕒 {formatDateRange(surpriseEvent.start_time, surpriseEvent.end_time)}</p>
+              </div>
+
+              <div className="bg-gray-50 dark:bg-gray-800 p-3 rounded-xl border border-gray-100 dark:border-gray-700 text-xs text-gray-600 dark:text-gray-300 leading-relaxed">
+                ✨ {surpriseEvent.summary || surpriseEvent.description || 'Akşamını renklendirecek heyecan dolu bir etkinlik!'}
+              </div>
+
+              <div className="flex items-center justify-between pt-2">
+                <span className="text-sm font-black text-brand bg-brand/10 px-3 py-1 rounded-lg">{formatPrice(surpriseEvent.price)}</span>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleSurpriseMe}
+                    className="px-3 py-2.5 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-xl text-xs font-bold hover:bg-gray-200 transition flex items-center gap-1"
+                  >
+                    <Shuffle size={14} /> Başka Seç
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowSurpriseModal(false);
+                      onEventSelect(surpriseEvent);
+                    }}
+                    className="px-4 py-2.5 bg-brand hover:bg-brand-dark text-white rounded-xl text-xs font-black shadow-lg transition"
+                  >
+                    İncele & Katıl →
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {selectedEvent && (
         <div className="fixed inset-0 z-[2000] flex items-end md:items-center justify-center">
           <div className="absolute inset-0 z-[1] bg-black/60" onClick={() => setSelectedEvent(null)}></div>
@@ -585,10 +884,51 @@ END:VCALENDAR`;
                 </div>
               </div>
 
+              {/* PERSONALIZED MATCH & DISTANCE INSIGHT */}
+              {selectedEvent.matchScore && (
+                <div className="bg-gradient-to-r from-red-950/40 to-purple-950/30 border border-brand/40 rounded-2xl p-4 shadow-sm">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-xs font-black text-brand flex items-center gap-1.5">
+                      <Sparkles size={15} /> 🎯 %{selectedEvent.matchScore} Seninle Uyumlu
+                    </span>
+                    {selectedEvent.walkMinutes && (
+                      <span className="text-[11px] font-bold text-gray-400 flex items-center gap-1">
+                        <Footprints size={13} className="text-emerald-400" /> ~{selectedEvent.walkMinutes} dk yürüme
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-300 font-medium leading-relaxed">
+                    {selectedEvent.matchReason}
+                  </p>
+                </div>
+              )}
+
               <div>
                 <h3 className="font-bold text-gray-900 dark:text-white mb-2">Etkinlik Hakkında</h3>
                 <p className="text-gray-600 dark:text-gray-400 leading-relaxed whitespace-pre-line">{selectedEvent.description || 'Açıklama bulunmuyor.'}</p>
               </div>
+
+              {/* MULTI-TICKET PROVIDER COMPARISON */}
+              {selectedEvent.ticket_sources && selectedEvent.ticket_sources.length > 0 && (
+                <div className="bg-gray-50 dark:bg-gray-800/80 p-4 rounded-xl border border-gray-200 dark:border-gray-700">
+                  <h3 className="font-bold text-xs uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2.5 flex items-center gap-1.5">
+                    <Ticket size={14} className="text-brand" /> Bilet Sağlayıcıları ({selectedEvent.ticket_sources.length} Platform)
+                  </h3>
+                  <div className="space-y-2">
+                    {selectedEvent.ticket_sources.map((src: any, idx: number) => (
+                      <div key={idx} className="flex justify-between items-center p-2.5 bg-white dark:bg-gray-900 rounded-lg border border-gray-100 dark:border-gray-800 text-xs">
+                        <span className="font-bold text-gray-800 dark:text-gray-200 capitalize">{src.source}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-black text-brand">{src.price}</span>
+                          <a href={src.url} target="_blank" rel="noopener noreferrer" className="bg-brand text-white px-2.5 py-1 rounded font-bold hover:bg-brand-dark transition text-[11px]">
+                            Seç
+                          </a>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {selectedEvent.rules && (
                 <div className="bg-yellow-50 dark:bg-yellow-900/10 p-4 rounded-xl border border-yellow-100 dark:border-yellow-900/20">
@@ -741,74 +1081,174 @@ END:VCALENDAR`;
       )}
 
       <header className="h-[70px] bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-4 md:px-6 flex justify-between items-center z-50 shrink-0 shadow-sm">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2"><div className="bg-brand text-white font-black text-xl px-3 py-1 tracking-tighter rounded-sm">18-23</div></div>
-          <button onClick={() => setShowLocModal(true)} className="flex items-center gap-1 text-sm font-bold text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 px-3 py-1.5 rounded-full transition"><MapPin size={16} className="text-brand" />{currentLocName}<ChevronDown size={14} className="text-gray-400" /></button>
+        <div className="flex items-center gap-3 md:gap-4">
+          <div className="flex items-center gap-2">
+            <div className="bg-brand text-white font-black text-xl px-3 py-1 tracking-tighter rounded-sm shadow-md">18-23</div>
+          </div>
+          <button onClick={() => setShowLocModal(true)} className="flex items-center gap-1 text-xs md:text-sm font-bold text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 px-2.5 py-1.5 rounded-full transition border border-gray-200 dark:border-gray-700">
+            <MapPin size={15} className="text-brand" />{currentLocName}<ChevronDown size={13} className="text-gray-400" />
+          </button>
         </div>
-        <div className="flex items-center gap-4">
+
+        {/* Action Buttons in Header */}
+        <div className="flex items-center gap-2 md:gap-3">
+          <button
+            onClick={handleOpenNightPlanner}
+            className="hidden sm:flex items-center gap-1.5 bg-gradient-to-r from-red-950 to-gray-900 text-white font-black text-xs px-3.5 py-2 rounded-xl hover:shadow-md transition border border-brand/40"
+          >
+            <Moon size={14} className="text-brand-light" /> Gece Planla
+          </button>
+
+          <button
+            onClick={handleSurpriseMe}
+            className="hidden sm:flex items-center gap-1.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-black text-xs px-3.5 py-2 rounded-xl hover:shadow-md transition shadow-amber-500/20"
+          >
+            <Shuffle size={14} /> Beni Şaşırt
+          </button>
+
           {user ? (
             <div className="flex items-center gap-3">
               <button className="text-gray-500 hover:text-brand transition relative">
                 <Bell size={20} />
                 {notifications.length > 0 && <span className="absolute top-0 right-0 w-2 h-2 bg-red-500 rounded-full border border-white dark:border-gray-900"></span>}
               </button>
-              <Link href="/profile" className="text-right hidden md:block hover:opacity-70 transition cursor-pointer"><div className="text-xs font-bold text-gray-900 dark:text-white">{user.email.split('@')[0]}</div><div className="text-[10px] text-gray-500 dark:text-gray-400 flex justify-end gap-1"><span>{favorites.length} Favori</span></div></Link>
+              <Link href="/profile" className="text-right hidden md:block hover:opacity-70 transition cursor-pointer">
+                <div className="text-xs font-bold text-gray-900 dark:text-white">{user.email.split('@')[0]}</div>
+                <div className="text-[10px] text-gray-500 dark:text-gray-400 flex justify-end gap-1"><span>{favorites.length} Favori</span></div>
+              </Link>
               <button onClick={async () => { await supabase.auth.signOut(); window.location.reload(); }} className="text-gray-400 hover:text-brand transition"><LogOut size={18} /></button>
             </div>
           ) : (
-            <Link href="/login" className="text-xs font-bold bg-black dark:bg-white dark:text-black text-white px-4 py-2 rounded-lg hover:bg-gray-800 transition">Giriş Yap</Link>
+            <Link href="/login" className="text-xs font-bold bg-black dark:bg-white dark:text-black text-white px-3.5 py-2 rounded-lg hover:bg-gray-800 transition">Giriş Yap</Link>
           )}
         </div>
       </header>
 
       <div className="flex flex-1 flex-col md:flex-row overflow-hidden relative">
-        {/* MAP SECTION */}
-        <div className="h-[40%] md:h-full md:w-[60%] bg-gray-100 dark:bg-gray-900 relative order-1 md:order-2">
-          <MapWithNoSSR events={events} selectedEvent={selectedEvent} triggerLocate={triggerLocate} markerMode="title" manualLocation={manualLocation} onEventSelect={onEventSelect} onVenueClick={(venueName: string) => setShowVenueEventsModal(venueName)} />
-          <button onClick={handleLocate} className="absolute top-4 right-4 z-[1000] bg-white dark:bg-gray-800 p-3 rounded-xl shadow-lg hover:bg-brand hover:text-white transition text-gray-700 dark:text-white border border-gray-200 dark:border-gray-700"><Navigation size={20} /></button>
+        {/* MAP SECTION (Hidden on mobile if tab is feed) */}
+        <div className={`h-[40%] md:h-full md:w-[58%] bg-gray-100 dark:bg-gray-900 relative order-1 md:order-2 ${mobileTab === 'feed' ? 'hidden md:block' : 'h-full w-full'}`}>
+          <MapWithNoSSR 
+            events={events} 
+            selectedEvent={selectedEvent} 
+            triggerLocate={triggerLocate} 
+            markerMode="title" 
+            manualLocation={manualLocation} 
+            onEventSelect={onEventSelect} 
+            onVenueClick={(venueName: string) => setShowVenueEventsModal(venueName)}
+            onLocationFound={(pos: any) => {
+              setUserCoords({ lat: pos.lat, lng: pos.lng });
+              setCurrentLocName('Konumum');
+            }}
+          />
+          <button onClick={handleLocate} className="absolute top-4 right-4 z-[1000] bg-white dark:bg-gray-800 p-3 rounded-xl shadow-lg hover:bg-brand hover:text-white transition text-gray-700 dark:text-white border border-gray-200 dark:border-gray-700" title="GPS ile Konumumu Bul"><Navigation size={20} /></button>
+          
           <div className="md:hidden absolute top-4 left-4 right-16 z-[900] overflow-x-auto no-scrollbar">
             <div className="flex gap-2">
-              {['Tümü', ...CATEGORIES].map(cat => (<button key={cat} onClick={() => setActiveCategory(cat)} className={`px-3 py-1.5 rounded-lg text-xs font-bold shadow-md whitespace-nowrap backdrop-blur-md ${activeCategory === cat ? 'bg-brand text-white' : 'bg-white/90 dark:bg-gray-800/90 text-gray-800 dark:text-white'}`}>{cat}</button>))}
+              {['Tümü', ...CATEGORIES].map(cat => (
+                <button key={cat} onClick={() => setActiveCategory(cat)} className={`px-3 py-1.5 rounded-lg text-xs font-bold shadow-md whitespace-nowrap backdrop-blur-md ${activeCategory === cat ? 'bg-brand text-white' : 'bg-white/90 dark:bg-gray-800/90 text-gray-800 dark:text-white'}`}>{cat}</button>
+              ))}
             </div>
           </div>
         </div>
 
-        {/* FEED SECTION */}
-        <div className="h-[60%] md:h-full md:w-[40%] bg-white dark:bg-gray-900 order-2 md:order-1 border-r border-gray-200 dark:border-gray-700 flex flex-col shadow-2xl relative z-20">
+        {/* FEED SECTION (Hidden on mobile if tab is map) */}
+        <div className={`h-[60%] md:h-full md:w-[42%] bg-white dark:bg-gray-900 order-2 md:order-1 border-r border-gray-200 dark:border-gray-700 flex flex-col shadow-2xl relative z-20 ${mobileTab === 'map' ? 'hidden md:flex' : 'flex'}`}>
           <div className="p-4 border-b border-gray-100 dark:border-gray-700 bg-white dark:bg-gray-900 shrink-0 space-y-3">
-            <div className="flex justify-between items-center"><h1 className="text-2xl font-black tracking-tighter text-gray-900 dark:text-white">AKIŞ</h1><div className="text-[10px] font-bold text-gray-400">{loading ? '...' : events.length} Etkinlik</div></div>
-
-            {/* FILTERS */}
-            <div className="flex gap-2 overflow-x-auto no-scrollbar">
-              <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg p-1 shrink-0">
-                <button onClick={() => setTimeFilter('all')} className={`px-3 py-1 rounded-md text-xs font-bold ${timeFilter === 'all' ? 'bg-white dark:bg-gray-700 shadow-sm text-black dark:text-white' : 'text-gray-500'}`}>Tümü</button>
-                <button onClick={() => setTimeFilter('today')} className={`px-3 py-1 rounded-md text-xs font-bold ${timeFilter === 'today' ? 'bg-white dark:bg-gray-700 shadow-sm text-brand' : 'text-gray-500'}`}>Bugün</button>
-                <button onClick={() => setTimeFilter('tomorrow')} className={`px-3 py-1 rounded-md text-xs font-bold ${timeFilter === 'tomorrow' ? 'bg-white dark:bg-gray-700 shadow-sm text-brand' : 'text-gray-500'}`}>Yarın</button>
-                <button onClick={() => setTimeFilter('weekend')} className={`px-3 py-1 rounded-md text-xs font-bold ${timeFilter === 'weekend' ? 'bg-white dark:bg-gray-700 shadow-sm text-brand' : 'text-gray-500'}`}>Hafta Sonu</button>
-                <div className="w-[1px] h-4 bg-gray-300 dark:bg-gray-700 mx-1"></div>
-                <button onClick={() => setPriceFilter(priceFilter === 'all' ? 'free' : 'all')} className={`px-3 py-1 rounded-md text-xs font-bold flex items-center gap-1 ${priceFilter === 'free' ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-100' : 'text-gray-500'}`}><Banknote size={14} /> Ücretsiz</button>
+            
+            {/* Header Title & Counter */}
+            <div className="flex justify-between items-center">
+              <div>
+                <h1 className="text-2xl font-black tracking-tighter text-gray-900 dark:text-white flex items-center gap-2">
+                  AKIŞ <span className="text-xs px-2 py-0.5 rounded-full bg-brand/10 text-brand font-bold uppercase">{discoveryMode === 'all' ? 'Tümü' : discoveryMode}</span>
+                </h1>
               </div>
-
+              <div className="text-[11px] font-bold text-gray-400 bg-gray-50 dark:bg-gray-800 px-2.5 py-1 rounded-full border border-gray-100 dark:border-gray-700">
+                {loading ? '...' : `${events.length} Etkinlik`}
+              </div>
             </div>
 
-            {/* MOOD PILLS - Modern Design */}
-            <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-1">
+            {/* Smart NLP / Natural Language Search Input */}
+            <div className="relative">
+              <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Örn: Kadıköy'de bu akşam, 400 TL altı konser, date planı..."
+                className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl pl-9 pr-8 py-2 text-xs text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand"
+              />
+              {searchQuery && (
+                <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+
+            {/* Suggested Search Prompts Chips */}
+            <div className="flex gap-1.5 overflow-x-auto no-scrollbar pt-0.5">
+              {[
+                { label: 'Kadıköy Caz 🎷', q: 'kadıköy caz konser' },
+                { label: 'Tunalı Date 🍷', q: 'tunalı date planı' },
+                { label: '500 TL Altı 🎫', q: '500 tl altı etkinlik' },
+                { label: 'Ücretsiz Sergi 🎨', q: 'ücretsiz sergi sanat' },
+                { label: 'Stand-Up Kahkaha 😂', q: 'stand-up komedi' }
+              ].map(chip => (
+                <button
+                  key={chip.label}
+                  onClick={() => handleNlpSearch(chip.q)}
+                  className="px-2.5 py-1 rounded-lg text-[11px] font-medium whitespace-nowrap bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-brand/10 hover:text-brand transition shrink-0"
+                >
+                  {chip.label}
+                </button>
+              ))}
+            </div>
+
+            {/* 11 CORE DISCOVERY MODES */}
+            <div className="flex gap-1.5 overflow-x-auto no-scrollbar pt-1 border-t dark:border-gray-800">
+              {[
+                { key: 'all', label: 'Tümü' },
+                { key: 'tonight', label: 'Bu Akşam 🔥' },
+                { key: 'afterwork', label: 'Mesai Sonrası (18-23) 🌙' },
+                { key: 'nearme', label: 'Yakınımda 📍' },
+                { key: 'date', label: 'Date Night ❤️' },
+                { key: 'friends', label: 'Arkadaşlarla 🍻' },
+                { key: 'solo', label: 'Tek Başına 🎒' },
+                { key: 'family', label: 'Ailece 👨‍👩‍👧' },
+                { key: 'tomorrow', label: 'Yarın' },
+                { key: 'weekend', label: 'Hafta Sonu' },
+                { key: 'free', label: 'Ücretsiz 🆓' },
+              ].map(mode => (
+                <button
+                  key={mode.key}
+                  onClick={() => {
+                    setDiscoveryMode(mode.key as any);
+                    if (mode.key === 'nearme' && !userCoords) handleLocate();
+                  }}
+                  className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all duration-200 border ${discoveryMode === mode.key ? 'bg-brand text-white border-transparent shadow-md scale-105' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:border-brand/40'}`}
+                >
+                  {mode.label}
+                </button>
+              ))}
+            </div>
+
+            {/* MOOD PILLS */}
+            <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
               {Object.keys(MOODS).map(m => (
                 <button
                   key={m}
                   onClick={() => { setActiveMood(activeMood === m ? 'Tümü' : m); setActiveCategory('Tümü'); }}
-                  className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all duration-200 border ${activeMood === m ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white border-transparent shadow-lg scale-105' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:border-purple-300 hover:text-purple-600'}`}
+                  className={`px-3 py-1 rounded-full text-[11px] font-bold whitespace-nowrap transition-all duration-200 border ${activeMood === m ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white border-transparent shadow-md' : 'bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:border-purple-300'}`}
                 >
                   {m}
                 </button>
               ))}
             </div>
 
-            {/* CATEGORY PILLS - Modern Design */}
+            {/* CATEGORY PILLS */}
             <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
               <button
                 onClick={() => setActiveCategory('Tümü')}
-                className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all duration-200 border ${activeCategory === 'Tümü' ? 'bg-brand text-white border-transparent shadow-md' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:border-brand/50'}`}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold whitespace-nowrap transition-all duration-200 border ${activeCategory === 'Tümü' ? 'bg-gray-800 text-white dark:bg-white dark:text-black border-transparent' : 'bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700'}`}
               >
                 Tümü
               </button>
@@ -816,76 +1256,152 @@ END:VCALENDAR`;
                 <button
                   key={c}
                   onClick={() => setActiveCategory(c)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all duration-200 border ${activeCategory === c ? 'bg-brand text-white border-transparent shadow-md' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:border-brand/50'}`}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold whitespace-nowrap transition-all duration-200 border ${activeCategory === c ? 'bg-gray-800 text-white dark:bg-white dark:text-black border-transparent' : 'bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700'}`}
                 >
                   {c}
                 </button>
               ))}
             </div>
 
-            {/* PRICE SLIDER (Embedded in Header Area) */}
-            <div className="pt-2 px-1">
-              <div className="flex justify-between items-center mb-1">
-                <span className="text-[10px] uppercase font-bold text-gray-500">Bütçe: 0 - {priceRange[1] >= 5000 ? '5000+' : priceRange[1]} TL</span>
-              </div>
-              <input type="range" min="0" max="5000" step="100" value={priceRange[1]} onChange={(e) => setPriceRange([0, parseInt(e.target.value)])} className="w-full accent-brand h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700" />
+            {/* PRICE SLIDER */}
+            <div className="pt-1 px-1 flex items-center justify-between gap-3 text-xs">
+              <span className="text-[10px] uppercase font-bold text-gray-400 whitespace-nowrap">Bütçe: 0 - {priceRange[1] >= 5000 ? '5000+' : priceRange[1]} TL</span>
+              <input 
+                type="range" 
+                min="0" 
+                max="5000" 
+                step="100" 
+                value={priceRange[1]} 
+                onChange={(e) => setPriceRange([0, parseInt(e.target.value)])} 
+                className="w-full accent-brand h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700" 
+              />
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-4 space-y-6 bg-gray-50 dark:bg-black/20">
+          {/* EVENTS FEED LIST */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50 dark:bg-black/20 pb-20 md:pb-8">
             {loading && [1, 2, 3].map(i => <SkeletonCard key={i} />)}
-            {!loading && events.length === 0 && <div className="text-center text-gray-400 mt-10 text-sm font-medium">Bu filtreye uygun etkinlik bulunamadı.</div>}
+            
+            {/* ACTIONABLE EMPTY STATE WITH RECOVERY BUTTONS */}
+            {!loading && events.length === 0 && (
+              <div className="text-center py-12 px-4 bg-white dark:bg-gray-800 rounded-3xl border border-gray-200 dark:border-gray-700 shadow-sm space-y-4">
+                <div className="w-14 h-14 bg-red-50 dark:bg-red-950/40 text-brand rounded-2xl flex items-center justify-center mx-auto text-2xl">
+                  🔍
+                </div>
+                <div>
+                  <h3 className="font-bold text-gray-900 dark:text-white text-base">Aradığınız kriterlere uygun etkinlik bulunamadı</h3>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 max-w-xs mx-auto">
+                    Filtreleri esneterek bu akşam için harika alternatifler bulabilirsiniz:
+                  </p>
+                </div>
+                <div className="flex flex-wrap justify-center gap-2 max-w-sm mx-auto pt-2">
+                  <button onClick={() => setCityFilter(null)} className="text-xs font-bold px-3 py-1.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-xl hover:bg-gray-200 transition">
+                    📍 Tüm Şehri Tara
+                  </button>
+                  <button onClick={() => setPriceRange([0, 5000])} className="text-xs font-bold px-3 py-1.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-xl hover:bg-gray-200 transition">
+                    💰 Bütçe Sınırını Kaldır
+                  </button>
+                  <button onClick={() => setDiscoveryMode('tomorrow')} className="text-xs font-bold px-3 py-1.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-xl hover:bg-gray-200 transition">
+                    📅 Yarın İçin Bak
+                  </button>
+                  <button onClick={resetAllFilters} className="text-xs font-bold px-3 py-1.5 bg-brand text-white rounded-xl hover:bg-brand-dark transition">
+                    🔄 Filtreleri Temizle
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* EVENT CARDS */}
             {!loading && events.map((event) => {
               const isRecommended = userPrefs.includes(event.category);
               const isFav = favorites.includes(event.id);
               const isSoldOut = event.sold_out;
+
               return (
-                <div key={event.id} onClick={() => onEventSelect(event)} className={`group bg-white dark:bg-gray-800 rounded-3xl cursor-pointer transition-all border border-gray-100 dark:border-gray-700 relative overflow-hidden flex flex-row md:flex-col items-stretch md:items-stretch h-32 md:h-auto hover:shadow-lg hover:border-brand/30 outline-none focus:outline-none focus:ring-0 ${!event.image_url ? 'h-auto' : ''} ${event.is_featured ? 'ring-2 ring-yellow-400 shadow-lg' : ''}`}>
+                <div 
+                  key={event.id} 
+                  onClick={() => onEventSelect(event)} 
+                  className={`group bg-white dark:bg-gray-800 rounded-3xl cursor-pointer transition-all border border-gray-100 dark:border-gray-700 relative overflow-hidden flex flex-row md:flex-col items-stretch h-36 md:h-auto hover:shadow-xl hover:border-brand/40 outline-none ${event.is_featured ? 'ring-2 ring-yellow-400 shadow-md' : ''}`}
+                >
+                  {/* Badges */}
                   {event.is_featured && (
-                    <div className="absolute top-2 left-2 z-10 bg-gradient-to-r from-yellow-400 to-orange-500 text-white text-[9px] font-black px-2 py-1 rounded-full shadow-lg flex items-center gap-1">
+                    <div className="absolute top-2 left-2 z-10 bg-gradient-to-r from-yellow-400 to-orange-500 text-white text-[9px] font-black px-2 py-0.5 rounded-full shadow-md flex items-center gap-1">
                       ⭐ ÖNE ÇIKAN
                     </div>
                   )}
-                  {event.sponsor_logo && event.is_featured && (
-                    <div className="absolute top-2 right-2 z-10">
-                      <img src={event.sponsor_logo} alt={event.sponsor_name || 'Sponsor'} className="h-6 w-auto object-contain bg-white/90 backdrop-blur rounded px-1" />
+
+                  {/* Recommendation Match Badge */}
+                  {event.matchScore && (
+                    <div className="absolute top-2 right-2 z-10 bg-black/75 backdrop-blur text-white text-[10px] font-black px-2 py-0.5 rounded-full shadow border border-white/20 flex items-center gap-1">
+                      <span className="text-amber-400">🎯</span> %{event.matchScore} Uyum
                     </div>
                   )}
+
+                  {/* Image */}
                   {event.image_url && (
-                    <div className="w-32 h-full md:w-full md:h-40 bg-brand shrink-0 relative flex items-center justify-center overflow-hidden">
-                      <img src={event.image_url} alt={event.title} className={`w-full h-full object-cover ${isSoldOut ? 'grayscale' : ''}`} />
+                    <div className="w-32 h-full md:w-full md:h-44 bg-brand shrink-0 relative flex items-center justify-center overflow-hidden">
+                      <img src={event.image_url} alt={event.title} className={`w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 ${isSoldOut ? 'grayscale' : ''}`} />
                       {isSoldOut && <div className="absolute inset-0 bg-black/50 flex items-center justify-center"><span className="text-[10px] font-bold text-white bg-red-600 px-1 rounded">TÜKENDİ</span></div>}
-                      <div className="absolute bottom-2 left-2 bg-black/60 backdrop-blur text-white text-[10px] font-bold px-2 py-0.5 rounded uppercase md:block hidden">{event.category}</div>
+                      <div className="absolute bottom-2 left-2 bg-black/60 backdrop-blur text-white text-[10px] font-bold px-2 py-0.5 rounded uppercase hidden md:block">{event.category}</div>
                     </div>
                   )}
-                  <div className="p-3 md:p-4 flex-1 min-w-0 flex flex-col justify-between">
-                    <div className="flex justify-between items-start mb-1">
-                      {!event.image_url && <span className="text-[10px] font-bold uppercase text-gray-400 bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">{event.category}</span>}
-                      {event.image_url && <div className="md:hidden"></div>}
-                      <span className="text-xs font-black text-brand bg-red-50 dark:bg-red-900/30 px-2 py-1 rounded whitespace-nowrap ml-auto">{event.price === '0' || event.price?.toLowerCase().includes('ücretsiz') ? 'Ücretsiz' : formatPrice(event.price)}</span>
-                    </div>
+
+                  {/* Content */}
+                  <div className="p-3 md:p-4 flex-1 min-w-0 flex flex-col justify-between space-y-1">
                     <div>
-                      <div className="flex items-center justify-between"><h3 className="font-bold text-sm md:text-lg text-gray-900 dark:text-white leading-tight line-clamp-2">{event.title}</h3>{isRecommended && !isSoldOut && <Star size={12} className="fill-yellow-400 text-yellow-400 shrink-0 ml-1" />}</div>
-                      <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1 mt-1 truncate"><MapPin size={12} /> {event.venue_name}</div>
-                      {event.summary && <div className="text-xs text-brand/80 font-medium mt-2 line-clamp-2 leading-relaxed">✨ {event.summary}</div>}
+                      <div className="flex justify-between items-start gap-1">
+                        <span className="text-[10px] font-bold uppercase text-gray-400 bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded md:hidden truncate">{event.category}</span>
+                        <span className="text-xs font-black text-brand bg-red-50 dark:bg-red-900/30 px-2 py-0.5 rounded whitespace-nowrap ml-auto">{event.price === '0' || event.price?.toLowerCase().includes('ücretsiz') ? 'Ücretsiz' : formatPrice(event.price)}</span>
+                      </div>
+
+                      <h3 className="font-bold text-sm md:text-base text-gray-900 dark:text-white leading-snug line-clamp-2 mt-1 group-hover:text-brand transition-colors">
+                        {event.title}
+                      </h3>
+
+                      <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1.5 mt-1 truncate">
+                        <MapPin size={12} className="text-brand shrink-0" /> 
+                        <span className="truncate">{event.venue_name}</span>
+                        {event.walkMinutes && (
+                          <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 rounded shrink-0">
+                            🚶 {event.walkMinutes} dk
+                          </span>
+                        )}
+                      </div>
+
+                      {event.summary && (
+                        <div className="text-xs text-gray-600 dark:text-gray-300 font-medium mt-1.5 line-clamp-1 leading-relaxed hidden sm:block">
+                          ✨ {event.summary}
+                        </div>
+                      )}
                     </div>
-                    <div className="flex justify-between items-end mt-2">
-                      <div className="text-xs text-gray-400 font-medium">{formatDateRange(event.start_time, event.end_time)}</div>
-                      <button onClick={(e) => toggleFavorite(e, event.id, event.category)} className="p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400 z-10 relative"><Heart size={16} className={isFav ? "fill-brand text-brand" : ""} /></button>
+
+                    <div className="flex justify-between items-end pt-1 border-t border-gray-100 dark:border-gray-800">
+                      <div className="text-[11px] text-gray-400 font-medium">{formatDateRange(event.start_time, event.end_time)}</div>
+                      <div className="flex items-center gap-1.5">
+                        {event.ticket_sources && event.ticket_sources.length > 1 && (
+                          <span className="text-[10px] bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 px-1.5 py-0.5 rounded font-bold">
+                            {event.ticket_sources.length} Sağlayıcı
+                          </span>
+                        )}
+                        <button onClick={(e) => toggleFavorite(e, event.id, event.category)} className="p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400 relative">
+                          <Heart size={16} className={isFav ? "fill-brand text-brand" : ""} />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
               )
             })}
 
-            <div className="flex flex-wrap justify-center gap-3 py-6 border-t dark:border-gray-700 mt-4">
-              <button onClick={() => setShowVenueModal(true)} className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-xl font-bold text-xs hover:bg-gray-200 dark:hover:bg-gray-700 transition">
+            {/* Action Bar Footer */}
+            <div className="flex flex-wrap justify-center gap-2.5 py-6 border-t dark:border-gray-700 mt-4">
+              <button onClick={() => setShowVenueModal(true)} className="flex items-center gap-1.5 px-3.5 py-2 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-xl font-bold text-xs hover:bg-gray-200 transition">
                 <Store size={14} /> Mekanını Ekle
               </button>
-              <button onClick={() => setShowSuggestModal(true)} className="flex items-center gap-2 px-4 py-2 bg-brand/10 text-brand rounded-xl font-bold text-xs hover:bg-brand/20 transition">
+              <button onClick={() => setShowSuggestModal(true)} className="flex items-center gap-1.5 px-3.5 py-2 bg-brand/10 text-brand rounded-xl font-bold text-xs hover:bg-brand/20 transition">
                 <Send size={14} /> Etkinlik Öner
               </button>
-              <a href="mailto:iletisim@18-23.com" className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-xl font-bold text-xs hover:bg-gray-200 dark:hover:bg-gray-700 transition">
+              <a href="mailto:iletisim@18-23.com" className="flex items-center gap-1.5 px-3.5 py-2 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-xl font-bold text-xs hover:bg-gray-200 transition">
                 <Mail size={14} /> Bize Ulaşın
               </a>
             </div>
@@ -893,7 +1409,51 @@ END:VCALENDAR`;
           </div>
         </div>
       </div>
-    </div>
 
+      {/* MOBILE BOTTOM NAVIGATION BAR */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 h-16 bg-white/95 dark:bg-gray-900/95 backdrop-blur-md border-t border-gray-200 dark:border-gray-800 flex items-center justify-around z-40 px-2 shadow-2xl">
+        <button
+          onClick={() => setMobileTab('feed')}
+          className={`flex flex-col items-center gap-1 py-1 px-3 rounded-lg text-[10px] font-black transition ${mobileTab === 'feed' ? 'text-brand' : 'text-gray-400'}`}
+        >
+          <Compass size={20} />
+          <span>Keşfet</span>
+        </button>
+
+        <button
+          onClick={() => setMobileTab('map')}
+          className={`flex flex-col items-center gap-1 py-1 px-3 rounded-lg text-[10px] font-black transition ${mobileTab === 'map' ? 'text-brand' : 'text-gray-400'}`}
+        >
+          <Map size={20} />
+          <span>Harita</span>
+        </button>
+
+        <button
+          onClick={handleOpenNightPlanner}
+          className="flex flex-col items-center gap-1 py-1 px-3 rounded-lg text-[10px] font-black text-brand-light transition"
+        >
+          <div className="w-8 h-8 rounded-full bg-brand text-white flex items-center justify-center shadow-lg -mt-3">
+            <Moon size={16} />
+          </div>
+          <span className="text-brand font-black">Planla</span>
+        </button>
+
+        <button
+          onClick={handleSurpriseMe}
+          className="flex flex-col items-center gap-1 py-1 px-3 rounded-lg text-[10px] font-black text-amber-500 transition"
+        >
+          <Shuffle size={20} />
+          <span>Sürpriz</span>
+        </button>
+
+        <Link
+          href={user ? '/profile' : '/login'}
+          className="flex flex-col items-center gap-1 py-1 px-3 rounded-lg text-[10px] font-black text-gray-400 hover:text-gray-600 transition"
+        >
+          <User size={20} />
+          <span>{user ? 'Profil' : 'Giriş'}</span>
+        </Link>
+      </nav>
+    </div>
   )
 }

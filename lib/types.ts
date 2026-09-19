@@ -51,6 +51,7 @@ export interface Event {
   min_price?: number | null;
   ticket_url?: string;
   ticket_details?: TicketDetail[];
+  ticket_sources?: { source: string; url: string; price: string }[];
 
   // Category & Classification
   category: string;
