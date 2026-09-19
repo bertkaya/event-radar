@@ -8,6 +8,7 @@ import { MapPin, Calendar, Navigation, Filter, Star, LogOut, Heart, Share2, Tick
 import Link from 'next/link'
 import SkeletonCard from '@/components/Skeleton'
 import type { Event } from '@/lib/types'
+import { fakeEvents } from '@/lib/data'
 import { getDistanceFromLatLonInKm, formatPrice } from '@/lib/utils'
 
 const MapWithNoSSR = dynamic(() => import('@/components/Map'), {
@@ -139,14 +140,13 @@ export default function Home() {
       // But query can filter too:
       .order('start_time', { ascending: true });
 
-    if (eventsData) {
-      const jitteredEvents = eventsData.map(ev => ({
-        ...ev,
-        lat: ev.lat + (Math.random() - 0.5) * 0.0002,
-        lng: ev.lng + (Math.random() - 0.5) * 0.0002
-      }))
-      setAllEvents(jitteredEvents)
-    }
+    const activeList = (eventsData && eventsData.length > 0) ? eventsData : fakeEvents;
+    const jitteredEvents = activeList.map(ev => ({
+      ...ev,
+      lat: ev.lat + (Math.random() - 0.5) * 0.0002,
+      lng: ev.lng + (Math.random() - 0.5) * 0.0002
+    }))
+    setAllEvents(jitteredEvents)
     setLoading(false)
   }
 
