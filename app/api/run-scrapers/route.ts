@@ -1,12 +1,13 @@
 
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseAdmin } from '@/lib/supabase-admin';
+import { isAdminRequest } from '@/lib/admin-session';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const supabase = createClient(supabaseUrl, supabaseKey);
+const unauthorized = () => NextResponse.json({ success: false, error: 'Yetkisiz' }, { status: 401 });
 
 export async function POST(request: Request): Promise<Response> {
+    if (!(await isAdminRequest())) return unauthorized();
+    const supabase = getSupabaseAdmin();
     try {
         const body = await request.json().catch(() => ({}));
         const scraperName = body.scraper || 'all';
@@ -28,15 +29,17 @@ export async function POST(request: Request): Promise<Response> {
             hint: 'GitHub Actions veya cron job kurulumu için .github/workflows/scrape_events.yml dosyasını kullanabilirsiniz.'
         });
 
-    } catch (error: any) {
+    } catch (error) {
         return NextResponse.json({
             success: false,
-            error: error.message
+            error: (error as Error).message
         }, { status: 500 });
     }
 }
 
 export async function GET() {
+    if (!(await isAdminRequest())) return unauthorized();
+    const supabase = getSupabaseAdmin();
     // Return scraper status
     const { data: logs } = await supabase
         .from('scraper_logs')

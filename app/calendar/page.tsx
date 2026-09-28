@@ -3,16 +3,14 @@ import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
 import { Calendar, ChevronLeft, MapPin, Clock } from 'lucide-react'
+import type { Event } from '@/lib/types'
 
 export default function MyCalendar() {
-  const [events, setEvents] = useState<any[]>([])
+  const [events, setEvents] = useState<Event[]>([])
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    fetchFavorites()
-  }, [])
 
-  const fetchFavorites = async () => {
+  async function fetchFavorites() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
       window.location.href = '/login'
@@ -37,6 +35,11 @@ export default function MyCalendar() {
     }
     setLoading(false)
   }
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- mount'ta veri çekme
+    fetchFavorites()
+  }, [])
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-black dark:text-white p-4">

@@ -1,6 +1,7 @@
 // app/page.tsx
 'use client'
 
+import { toast } from '@/lib/toast'
 import { useState, useEffect } from 'react'
 import dynamic from 'next/dynamic'
 import { supabase } from '@/lib/supabase'
@@ -12,13 +13,18 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import SkeletonCard from '@/components/Skeleton'
-import type { Event } from '@/lib/types'
+import type { Event, SelectableEvent, MapLocation, AppNotification, Review, MaybeEvent } from '@/lib/types'
+import type { User as AuthUser } from '@supabase/supabase-js'
 import { fakeEvents } from '@/lib/data'
 import { getDistanceFromLatLonInKm, formatPrice } from '@/lib/utils'
 import { deduplicateEvents } from '@/lib/dedup'
 import { rankEvents, ScoredEvent } from '@/lib/recommendation'
 import { generateNightPlans, NightPlan } from '@/lib/night_planner'
 import { parseNaturalLanguageQuery } from '@/lib/nlp_filter'
+import { eventUrl } from '@/lib/site'
+
+// Demo verisi yalnızca geliştirmede ya da açıkça istendiğinde gösterilir
+const DEMO_MODE = process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_DEMO_MODE === 'true'
 
 const MapWithNoSSR = dynamic(() => import('@/components/Map'), {
   ssr: false,
@@ -55,7 +61,7 @@ export default function Home() {
   const [userPrefs, setUserPrefs] = useState<string[]>([])
   const [favorites, setFavorites] = useState<number[]>([])
   const [favCounts, setFavCounts] = useState<{ [key: number]: number }>({})
-  const [selectedEvent, setSelectedEvent] = useState<any>(null)
+  const [selectedEvent, setSelectedEvent] = useState<SelectableEvent | null>(null)
 
   // 11 Core Product Modes
   const [discoveryMode, setDiscoveryMode] = useState<
@@ -95,24 +101,27 @@ export default function Home() {
   const [cityFilter, setCityFilter] = useState<{ lat: number, lng: number } | null>(null) // City Filter (Center)
 
   const [triggerLocate, setTriggerLocate] = useState(false)
-  const [manualLocation, setManualLocation] = useState<any>(null)
+  const [manualLocation, setManualLocation] = useState<MapLocation | null>(null)
   const [showLocModal, setShowLocModal] = useState(false)
   const [showVenueModal, setShowVenueModal] = useState(false)
   const [showVenueEventsModal, setShowVenueEventsModal] = useState<string | null>(null) // Venue Name
 
   const [currentLocName, setCurrentLocName] = useState('İstanbul')
-  const [user, setUser] = useState<any>(null)
+  const [user, setUser] = useState<AuthUser | null>(null)
   const [copied, setCopied] = useState(false)
   const [venueForm, setVenueForm] = useState({ venue_name: '', contact_name: '', phone: '', email: '', message: '' })
   const [showSuggestModal, setShowSuggestModal] = useState(false)
   const [suggestForm, setSuggestForm] = useState({ title: '', event_url: '', notes: '', contact_email: '' })
+  const [honeypot, setHoneypot] = useState('')
+  const [venueKvkk, setVenueKvkk] = useState(false)
+  const [loadError, setLoadError] = useState(false)
 
   // Phase 3: User Engagement State
   const [followedVenues, setFollowedVenues] = useState<string[]>([])
-  const [notifications, setNotifications] = useState<any[]>([])
+  const [notifications, setNotifications] = useState<AppNotification[]>([])
 
   // Phase 5: Reviews State
-  const [eventReviews, setEventReviews] = useState<any[]>([])
+  const [eventReviews, setEventReviews] = useState<Review[]>([])
   const [showReviewForm, setShowReviewForm] = useState(false)
   const [reviewForm, setReviewForm] = useState({ rating: 5, comment: '' })
   const [submittingReview, setSubmittingReview] = useState(false)
@@ -141,7 +150,7 @@ export default function Home() {
 
   const toggleFollow = async (venueName: string) => {
     if (!user) {
-      alert('Lütfen giriş yapınız.');
+      toast('Lütfen giriş yapınız.');
       return
     }
     const isFollowing = followedVenues.includes(venueName)
@@ -157,28 +166,28 @@ export default function Home() {
     setFollowedVenues(newFollows)
   }
 
-  useEffect(() => { fetchData() }, [])
-  useEffect(() => { 
-    applyFilters() 
-  }, [activeCategory, activeMood, timeFilter, discoveryMode, searchQuery, sortBy, priceFilter, allEvents, favCounts, cityFilter, priceRange, userCoords, userPrefs])
 
   const fetchData = async () => {
     setLoading(true)
     await fetchUserData()
 
-    const { data: allFavs } = await supabase.from('favorites').select('event_id')
+    const { data: favRows } = await supabase.from('event_favorite_counts').select('event_id, favorite_count')
     const counts: { [key: number]: number } = {}
-    allFavs?.forEach((f: any) => { counts[f.event_id] = (counts[f.event_id] || 0) + 1 })
+    favRows?.forEach((f: { event_id: number; favorite_count: number }) => { counts[f.event_id] = f.favorite_count })
     setFavCounts(counts)
 
-    const { data: eventsData } = await supabase
+    const { data: eventsData, error: eventsError } = await supabase
       .from('events')
       .select('*, organizers(name, logo_url)')
       .eq('is_approved', true)
       .gte('start_time', new Date().toISOString())
       .order('start_time', { ascending: true });
 
-    const activeList = (eventsData && eventsData.length > 0) ? eventsData : fakeEvents;
+    if (eventsError) {
+      console.error('Etkinlikler yüklenemedi:', eventsError)
+      setLoadError(true)
+    }
+    const activeList = (eventsData && eventsData.length > 0) ? eventsData : (DEMO_MODE ? fakeEvents : []);
     
     // 1. Intelligent Deduplication across ticket vendors (Biletix, Passo, Bubilet, Biletinial)
     const deduplicated = deduplicateEvents(activeList);
@@ -190,6 +199,13 @@ export default function Home() {
     }))
     setAllEvents(jitteredEvents)
     setLoading(false)
+
+    // /etkinlik/[id] sayfasından "Haritada Gör" ile gelindiyse o etkinliği aç
+    const sharedId = Number(new URLSearchParams(window.location.search).get('event'))
+    if (sharedId) {
+      const shared = jitteredEvents.find(ev => ev.id === sharedId)
+      if (shared) onEventSelect(shared)
+    }
   }
 
   const applyFilters = () => {
@@ -332,6 +348,12 @@ export default function Home() {
     setEvents(scored)
   }
 
+  // Veri yükleme ve filtreleme (fonksiyonlar tanımlandıktan sonra)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { fetchData() }, [])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { applyFilters() }, [activeCategory, activeMood, timeFilter, discoveryMode, searchQuery, sortBy, priceFilter, allEvents, favCounts, cityFilter, priceRange, userCoords, userPrefs])
+
   // AI Night Planner Trigger
   const handleOpenNightPlanner = () => {
     const plans = generateNightPlans(allEvents, {
@@ -364,7 +386,7 @@ export default function Home() {
     if (parsed.mood) setActiveMood(parsed.mood)
     if (parsed.timeFilter) {
       if (parsed.timeFilter === 'today') setDiscoveryMode('tonight')
-      else setDiscoveryMode(parsed.timeFilter as any)
+      else setDiscoveryMode(parsed.timeFilter as typeof discoveryMode)
     }
     if (parsed.freeOnly) setPriceFilter('free')
     if (parsed.maxBudget) setPriceRange([0, parsed.maxBudget])
@@ -382,9 +404,9 @@ export default function Home() {
     setSearchQuery('')
   }
 
-  const toggleFavorite = async (e: any, eventId: number, category: string) => {
+  const toggleFavorite = async (e: MaybeEvent, eventId: number, category: string) => {
     e?.stopPropagation()
-    if (!user) return alert('Favorilere eklemek için giriş yapmalısın!')
+    if (!user) return toast('Favorilere eklemek için giriş yapmalısın!')
     if (favorites.includes(eventId)) {
       setFavorites(favorites.filter(id => id !== eventId))
       setFavCounts(prev => ({ ...prev, [eventId]: Math.max(0, (prev[eventId] || 1) - 1) }))
@@ -398,16 +420,16 @@ export default function Home() {
   }
 
   // --- SOCIAL SHERE ---
-  const handleShare = async (event: any, platform?: 'whatsapp' | 'twitter' | 'instagram') => {
-    const shareText = `🔥 ${event.title} @ ${event.venue_name}\n🗓️ ${formatDateRange(event.start_time, event.end_time)}\n\nLink: https://event-radar.vercel.app`
-    const url = 'https://event-radar.vercel.app';
+  const handleShare = async (event: Event, platform?: 'whatsapp' | 'twitter' | 'instagram') => {
+    const url = eventUrl(event.id)
+    const shareText = `🔥 ${event.title} @ ${event.venue_name}\n🗓️ ${formatDateRange(event.start_time, event.end_time)}\n\n${url}`
 
     if (platform === 'whatsapp') {
       window.open(`https://wa.me/?text=${encodeURIComponent(shareText)}`, '_blank')
     } else if (platform === 'twitter') {
       window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}`, '_blank')
     } else if (platform === 'instagram') {
-      alert('Instagram hikaye paylaşımı mobilde kopyalayarak yapılabilir. Metin kopyalandı!')
+      toast('Instagram hikaye paylaşımı mobilde kopyalayarak yapılabilir. Metin kopyalandı!')
       navigator.clipboard.writeText(shareText);
     } else {
       // Native or Copy
@@ -418,7 +440,7 @@ export default function Home() {
   }
 
   // --- CALENDAR ---
-  const addToCalendar = (event: any, type: 'google' | 'ical') => {
+  const addToCalendar = (event: Event, type: 'google' | 'ical') => {
     const startTime = new Date(event.start_time).toISOString().replace(/-|:|\.\d\d\d/g, "");
     const endTime = event.end_time
       ? new Date(event.end_time).toISOString().replace(/-|:|\.\d\d\d/g, "")
@@ -434,7 +456,7 @@ export default function Home() {
       const icsContent = `BEGIN:VCALENDAR
 VERSION:2.0
 BEGIN:VEVENT
-URL:${event.ticket_url || 'https://event-radar.vercel.app'}
+URL:${event.ticket_url || eventUrl(event.id)}
 DTSTART:${startTime}
 DTEND:${endTime}
 SUMMARY:${event.title}
@@ -458,14 +480,19 @@ END:VCALENDAR`;
     window.open(url, '_blank');
   }
 
-  const handleVenueSubmit = async (e: any) => {
+  const handleVenueSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const { error } = await supabase.from('venue_applications').insert([venueForm]);
-    if (!error) { alert('Başvurunuz alındı!'); setShowVenueModal(false); setVenueForm({ venue_name: '', contact_name: '', phone: '', email: '', message: '' }) }
-    else { alert('Hata oluştu.') }
+    const res = await fetch('/api/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'venue_application', ...venueForm, kvkk: venueKvkk, website: honeypot }),
+    })
+    const json = await res.json().catch(() => ({}))
+    if (res.ok) { toast('Başvurunuz alındı!'); setShowVenueModal(false); setVenueForm({ venue_name: '', contact_name: '', phone: '', email: '', message: '' }); setVenueKvkk(false) }
+    else { toast(json.error || 'Hata oluştu.') }
   }
 
-  const openDirections = (e: any, event: any) => {
+  const openDirections = (e: MaybeEvent, event: Event) => {
     e?.stopPropagation()
     if (event.maps_url) {
       window.open(event.maps_url, '_blank')
@@ -474,11 +501,11 @@ END:VCALENDAR`;
     } else if (event.address) {
       window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(event.address)}`, '_blank')
     } else {
-      alert('Konum bilgisi bulunamadı.')
+      toast('Konum bilgisi bulunamadı.')
     }
   }
 
-  const openTicket = (e: any, url: string) => { e?.stopPropagation(); window.open(url, '_blank') }
+  const openTicket = (e: MaybeEvent, url?: string) => { e?.stopPropagation(); if (url) window.open(url, '_blank', 'noopener') }
 
   // Fetch reviews for selected event
   const fetchEventReviews = async (eventId: number) => {
@@ -494,9 +521,9 @@ END:VCALENDAR`;
 
   // Submit a review
   const handleSubmitReview = async () => {
-    if (!user) return alert('Yorum yapmak için giriş yapmalısınız!')
+    if (!user) return toast('Yorum yapmak için giriş yapmalısınız!')
     if (!selectedEvent) return
-    if (reviewForm.comment.trim().length < 10) return alert('Yorumunuz en az 10 karakter olmalı.')
+    if (reviewForm.comment.trim().length < 10) return toast('Yorumunuz en az 10 karakter olmalı.')
 
     setSubmittingReview(true)
     const { error } = await supabase.from('event_reviews').insert({
@@ -509,12 +536,12 @@ END:VCALENDAR`;
 
     if (error) {
       if (error.code === '23505') {
-        alert('Bu etkinliğe zaten yorum yapmışsınız.')
+        toast('Bu etkinliğe zaten yorum yapmışsınız.')
       } else {
-        alert('Hata: ' + error.message)
+        toast('Hata: ' + error.message)
       }
     } else {
-      alert('✅ Yorumunuz gönderildi! Onaylandıktan sonra görünecek.')
+      toast('✅ Yorumunuz gönderildi! Onaylandıktan sonra görünecek.')
       setShowReviewForm(false)
       setReviewForm({ rating: 5, comment: '' })
     }
@@ -522,7 +549,7 @@ END:VCALENDAR`;
   }
 
   // When selected event changes, fetch its reviews
-  const onEventSelect = (event: any) => {
+  const onEventSelect = (event: SelectableEvent | null) => {
     setSelectedEvent(event)
     if (event) {
       fetchEventReviews(event.id)
@@ -532,20 +559,25 @@ END:VCALENDAR`;
   }
 
   // Submit event suggestion
-  const handleSuggestSubmit = async (e: any) => {
+  const handleSuggestSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!suggestForm.title) return alert('Etkinlik adı gerekli!');
-    const { error } = await supabase.from('event_suggestions').insert([suggestForm]);
-    if (!error) {
-      alert('✅ Öneriniz alındı! Geri bildiriminiz için teşekkürler.');
+    if (!suggestForm.title) return toast('Etkinlik adı gerekli!');
+    const res = await fetch('/api/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'event_suggestion', ...suggestForm, website: honeypot }),
+    })
+    const json = await res.json().catch(() => ({}))
+    if (res.ok) {
+      toast('✅ Öneriniz alındı! Geri bildiriminiz için teşekkürler.');
       setShowSuggestModal(false);
       setSuggestForm({ title: '', event_url: '', notes: '', contact_email: '' });
     }
-    else { alert('Hata oluştu: ' + error.message); }
+    else { toast(json.error || 'Hata oluştu.'); }
   }
 
   const handleLocate = () => { setTriggerLocate(true); setCurrentLocName("Konumum"); setTimeout(() => setTriggerLocate(false), 1000) }
-  const handleSelectLocation = (loc: any) => {
+  const handleSelectLocation = (loc: typeof PRESET_LOCATIONS[number]) => {
     setManualLocation(loc);
     setCurrentLocName(loc.name.replace('• ', ''));
     setShowLocModal(false);
@@ -622,9 +654,14 @@ END:VCALENDAR`;
                 <input required placeholder="Yetkili Kişi" className="w-full border p-3 rounded-lg dark:bg-gray-700 dark:border-gray-600" value={venueForm.contact_name} onChange={e => setVenueForm({ ...venueForm, contact_name: e.target.value })} />
                 <div className="flex gap-2">
                   <input required placeholder="Telefon" className="w-full border p-3 rounded-lg dark:bg-gray-700 dark:border-gray-600" value={venueForm.phone} onChange={e => setVenueForm({ ...venueForm, phone: e.target.value })} />
-                  <input required placeholder="E-mail" className="w-full border p-3 rounded-lg dark:bg-gray-700 dark:border-gray-600" value={venueForm.email} onChange={e => setVenueForm({ ...venueForm, email: e.target.value })} />
+                  <input required type="email" placeholder="E-mail" className="w-full border p-3 rounded-lg dark:bg-gray-700 dark:border-gray-600" value={venueForm.email} onChange={e => setVenueForm({ ...venueForm, email: e.target.value })} />
                 </div>
                 <textarea placeholder="Mesajınız..." className="w-full border p-3 rounded-lg h-20 resize-none dark:bg-gray-700 dark:border-gray-600" value={venueForm.message} onChange={e => setVenueForm({ ...venueForm, message: e.target.value })} />
+                <input type="text" name="website" tabIndex={-1} autoComplete="off" aria-hidden="true" className="hidden" value={honeypot} onChange={e => setHoneypot(e.target.value)} />
+                <label className="flex items-start gap-2 text-xs text-gray-600 dark:text-gray-300">
+                  <input type="checkbox" required checked={venueKvkk} onChange={e => setVenueKvkk(e.target.checked)} className="mt-0.5" />
+                  <span><Link href="/kvkk" target="_blank" className="underline font-bold">KVKK Aydınlatma Metni</Link>&apos;ni okudum; iletişim bilgilerimin başvurumun değerlendirilmesi için işlenmesini kabul ediyorum.</span>
+                </label>
                 <button className="w-full bg-black text-white dark:bg-white dark:text-black py-3 rounded-xl font-bold">Başvuru Gönder</button>
               </form>
             </div>
@@ -646,7 +683,9 @@ END:VCALENDAR`;
                 <input required placeholder="Etkinlik Adı *" className="w-full border p-3 rounded-lg dark:bg-gray-700 dark:border-gray-600" value={suggestForm.title} onChange={e => setSuggestForm({ ...suggestForm, title: e.target.value })} />
                 <input placeholder="Etkinlik Linki (bilet sitesi vb.)" className="w-full border p-3 rounded-lg dark:bg-gray-700 dark:border-gray-600" value={suggestForm.event_url} onChange={e => setSuggestForm({ ...suggestForm, event_url: e.target.value })} />
                 <textarea placeholder="Notlar (tarih, mekan vb.)" className="w-full border p-3 rounded-lg h-20 resize-none dark:bg-gray-700 dark:border-gray-600" value={suggestForm.notes} onChange={e => setSuggestForm({ ...suggestForm, notes: e.target.value })} />
-                <input placeholder="E-mail (opsiyonel)" className="w-full border p-3 rounded-lg dark:bg-gray-700 dark:border-gray-600" value={suggestForm.contact_email} onChange={e => setSuggestForm({ ...suggestForm, contact_email: e.target.value })} />
+                <input type="email" placeholder="E-mail (opsiyonel)" className="w-full border p-3 rounded-lg dark:bg-gray-700 dark:border-gray-600" value={suggestForm.contact_email} onChange={e => setSuggestForm({ ...suggestForm, contact_email: e.target.value })} />
+                <input type="text" name="website" tabIndex={-1} autoComplete="off" aria-hidden="true" className="hidden" value={honeypot} onChange={e => setHoneypot(e.target.value)} />
+                <p className="text-[11px] text-gray-500">E-postanız yalnızca öneriniz hakkında dönüş için kullanılır. <Link href="/kvkk" target="_blank" className="underline">KVKK</Link></p>
                 <button className="w-full bg-black text-white dark:bg-white dark:text-black py-3 rounded-xl font-bold">Etkinlik Öner</button>
               </form>
             </div>
@@ -756,7 +795,7 @@ END:VCALENDAR`;
                             <button
                               onClick={() => {
                                 setShowNightPlannerModal(false);
-                                onEventSelect(step.eventRef);
+                                onEventSelect(step.eventRef ?? null);
                               }}
                               className="text-xs bg-brand text-white font-bold px-3 py-1.5 rounded-lg hover:bg-brand-dark transition"
                             >
@@ -915,7 +954,7 @@ END:VCALENDAR`;
                     <Ticket size={14} className="text-brand" /> Bilet Sağlayıcıları ({selectedEvent.ticket_sources.length} Platform)
                   </h3>
                   <div className="space-y-2">
-                    {selectedEvent.ticket_sources.map((src: any, idx: number) => (
+                    {selectedEvent.ticket_sources.map((src, idx) => (
                       <div key={idx} className="flex justify-between items-center p-2.5 bg-white dark:bg-gray-900 rounded-lg border border-gray-100 dark:border-gray-800 text-xs">
                         <span className="font-bold text-gray-800 dark:text-gray-200 capitalize">{src.source}</span>
                         <div className="flex items-center gap-2">
@@ -941,7 +980,7 @@ END:VCALENDAR`;
                 <div className="bg-gray-50 dark:bg-gray-900 p-4 rounded-xl border border-gray-100 dark:border-gray-700">
                   <h3 className="font-bold text-gray-900 dark:text-gray-100 mb-3 flex items-center gap-2"><Ticket size={16} /> Bilet Seçenekleri</h3>
                   <div className="space-y-2">
-                    {selectedEvent.ticket_details.map((t: any, idx: number) => (
+                    {selectedEvent.ticket_details.map((t, idx) => (
                       <div key={idx} className="flex justify-between items-center p-3 bg-white dark:bg-gray-800 rounded-lg shadow-sm">
                         <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t.name}</span>
                         <div className="flex items-center gap-2">
@@ -1032,7 +1071,7 @@ END:VCALENDAR`;
                 {/* Reviews List */}
                 {eventReviews.length > 0 ? (
                   <div className="space-y-3 max-h-48 overflow-y-auto">
-                    {eventReviews.map((review: any) => (
+                    {eventReviews.map((review) => (
                       <div key={review.id} className="bg-gray-50 dark:bg-gray-800 p-3 rounded-xl">
                         <div className="flex items-center justify-between mb-2">
                           <div className="flex items-center gap-1">
@@ -1113,7 +1152,7 @@ END:VCALENDAR`;
                 {notifications.length > 0 && <span className="absolute top-0 right-0 w-2 h-2 bg-red-500 rounded-full border border-white dark:border-gray-900"></span>}
               </button>
               <Link href="/profile" className="text-right hidden md:block hover:opacity-70 transition cursor-pointer">
-                <div className="text-xs font-bold text-gray-900 dark:text-white">{user.email.split('@')[0]}</div>
+                <div className="text-xs font-bold text-gray-900 dark:text-white">{user.email?.split('@')[0]}</div>
                 <div className="text-[10px] text-gray-500 dark:text-gray-400 flex justify-end gap-1"><span>{favorites.length} Favori</span></div>
               </Link>
               <button onClick={async () => { await supabase.auth.signOut(); window.location.reload(); }} className="text-gray-400 hover:text-brand transition"><LogOut size={18} /></button>
@@ -1135,7 +1174,7 @@ END:VCALENDAR`;
             manualLocation={manualLocation} 
             onEventSelect={onEventSelect} 
             onVenueClick={(venueName: string) => setShowVenueEventsModal(venueName)}
-            onLocationFound={(pos: any) => {
+            onLocationFound={(pos) => {
               setUserCoords({ lat: pos.lat, lng: pos.lng });
               setCurrentLocName('Konumum');
             }}
@@ -1221,7 +1260,7 @@ END:VCALENDAR`;
                 <button
                   key={mode.key}
                   onClick={() => {
-                    setDiscoveryMode(mode.key as any);
+                    setDiscoveryMode(mode.key as typeof discoveryMode);
                     if (mode.key === 'nearme' && !userCoords) handleLocate();
                   }}
                   className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all duration-200 border ${discoveryMode === mode.key ? 'bg-brand text-white border-transparent shadow-md scale-105' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:border-brand/40'}`}
@@ -1282,8 +1321,16 @@ END:VCALENDAR`;
           <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50 dark:bg-black/20 pb-20 md:pb-8">
             {loading && [1, 2, 3].map(i => <SkeletonCard key={i} />)}
             
+            {!loading && loadError && (
+              <div className="text-center py-10 px-4 bg-white dark:bg-gray-800 rounded-3xl border border-red-200 dark:border-red-900 space-y-3">
+                <h3 className="font-bold text-gray-900 dark:text-white">Etkinlikler şu an yüklenemedi</h3>
+                <p className="text-xs text-gray-500">Bağlantı sorunu olabilir. Birazdan tekrar deneyin.</p>
+                <button onClick={() => { setLoadError(false); fetchData() }} className="text-xs font-bold px-3 py-1.5 bg-brand text-white rounded-xl">Tekrar Dene</button>
+              </div>
+            )}
+
             {/* ACTIONABLE EMPTY STATE WITH RECOVERY BUTTONS */}
-            {!loading && events.length === 0 && (
+            {!loading && !loadError && events.length === 0 && (
               <div className="text-center py-12 px-4 bg-white dark:bg-gray-800 rounded-3xl border border-gray-200 dark:border-gray-700 shadow-sm space-y-4">
                 <div className="w-14 h-14 bg-red-50 dark:bg-red-950/40 text-brand rounded-2xl flex items-center justify-center mx-auto text-2xl">
                   🔍
@@ -1404,6 +1451,10 @@ END:VCALENDAR`;
               <a href="mailto:iletisim@18-23.com" className="flex items-center gap-1.5 px-3.5 py-2 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-xl font-bold text-xs hover:bg-gray-200 transition">
                 <Mail size={14} /> Bize Ulaşın
               </a>
+            </div>
+            <div className="flex justify-center gap-4 text-[11px] text-gray-400 pb-2">
+              <Link href="/kvkk" className="hover:text-brand">KVKK &amp; Gizlilik</Link>
+              <span>© {new Date().getFullYear()} 18-23</span>
             </div>
             <div className="h-8"></div>
           </div>
