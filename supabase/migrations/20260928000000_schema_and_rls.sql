@@ -273,7 +273,7 @@ SELECT u.id, u.email, split_part(u.email, '@', 1) FROM auth.users u
 ON CONFLICT (id) DO NOTHING;
 
 -- auth.users üzerinde başka isimli eski bir profil trigger'ı varsa çift insert olur; uyar.
-DO $
+DO $$
 DECLARE t RECORD;
 BEGIN
   FOR t IN SELECT tgname FROM pg_trigger
@@ -281,7 +281,7 @@ BEGIN
   LOOP
     RAISE NOTICE 'auth.users üzerinde ek trigger var: % — profil oluşturuyorsa kaldırın (DROP TRIGGER % ON auth.users)', t.tgname, t.tgname;
   END LOOP;
-END $;
+END $$;
 
 -- Takip edilen mekâna yeni onaylı etkinlik → bildirim.
 -- SECURITY DEFINER: notifications tablosuna RLS'e takılmadan yazar.
