@@ -1,14 +1,11 @@
 
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 import * as cheerio from 'cheerio';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-
-const supabase = createClient(supabaseUrl, supabaseKey);
+import { getSupabaseAdmin } from '@/lib/supabase-admin';
+import { isAdminRequest, isSameOrigin } from '@/lib/admin-session';
 
 async function fetchLavarlaEvents() {
+    const supabase = getSupabaseAdmin();
     console.log('Starting Lavarla scrape (API)...');
     let count = 0;
     const errors: string[] = [];
@@ -23,7 +20,7 @@ async function fetchLavarlaEvents() {
         const $map = cheerio.load(xml, { xmlMode: true });
 
         const urls: string[] = [];
-        $map('loc').each((i: any, el: any) => {
+        $map('loc').each((_i, el) => {
             const u = $map(el).text();
             if (u !== 'https://lavarla.com/etkinlik/' && !u.includes('/page/')) urls.push(u);
         });
@@ -114,17 +111,20 @@ async function fetchLavarlaEvents() {
                 if (!error) count++;
                 else errors.push(error.message);
 
-            } catch (e: any) {
-                errors.push(`Error processing ${url}: ${e.message}`);
+            } catch (e) {
+                errors.push(`Error processing ${url}: ${(e as Error).message}`);
             }
         }
-    } catch (err: any) {
-        errors.push('Fatal: ' + err.message);
+    } catch (err) {
+        errors.push('Fatal: ' + (err as Error).message);
     }
     return { count, errors };
 }
 
-export async function POST() {
+export async function POST(request: Request) {
+    if (!(await isAdminRequest()) || !isSameOrigin(request)) {
+        return NextResponse.json({ success: false, error: 'Yetkisiz' }, { status: 401 });
+    }
     const result = await fetchLavarlaEvents();
     return NextResponse.json({ success: true, count: result.count, errors: result.errors });
 }

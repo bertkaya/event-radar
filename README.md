@@ -1,36 +1,62 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 18-23 · Etkinlik Rehberi
 
-## Getting Started
+Mesai sonrası (18:00–23:00) etkinlik keşif uygulaması: İstanbul, Ankara ve İzmir'deki konser, tiyatro, stand-up ve daha fazlası; harita + liste, kişisel uyum puanı, "Bu Akşamı Planla" ve "Sürpriz Yap".
 
-First, run the development server:
+**Stack:** Next.js 16 (App Router) · React 19 · Tailwind 3 · Supabase (Postgres + Auth) · Leaflet · Puppeteer/Cheerio scraper'lar (GitHub Actions)
+
+## Kurulum
 
 ```bash
+npm install
+cp env.example .env.local   # değerleri doldurun
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Ortam değişkenleri
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| Değişken | Nerede | Açıklama |
+|---|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` | public | Supabase > Project Settings > API |
+| `NEXT_PUBLIC_SITE_URL` | public | Canonical adres (paylaşım linkleri, sitemap, OG). Domain değişince sadece bunu güncelleyin |
+| `NEXT_PUBLIC_DEMO_MODE` | public | `true` ise prod'da DB boşken demo etkinlikler gösterilir |
+| `SUPABASE_SERVICE_ROLE_KEY` | **sunucu** | Admin proxy'si, form gönderimleri, hesap silme ve scraper'lar için. Asla `NEXT_PUBLIC_` yapmayın |
+| `ADMIN_PASSWORD` | **sunucu** | `/admin` şifresi (≥12 karakter) |
+| `ADMIN_SESSION_SECRET` | **sunucu** | Admin cookie imzası (≥32 karakter) |
+| `GEMINI_API_KEY` | script | Opsiyonel, `scripts/enrich_events.ts` |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Veritabanı
 
-## Learn More
+Şema + RLS tek dosyada ve idempotent: [`supabase/migrations/20260928000000_schema_and_rls.sql`](supabase/migrations/20260928000000_schema_and_rls.sql). Supabase Dashboard > SQL Editor'da çalıştırın (mevcut veritabanında güvenle tekrar çalıştırılabilir).
 
-To learn more about Next.js, take a look at the following resources:
+Güvenlik modeli:
+- **anon / authenticated** yalnızca RLS'in izin verdiğini yapar: onaylı etkinlikleri okur, kendi favori/takip/profilini yönetir, onay bekleyen yorum ve etkinlik önerir.
+- **Admin paneli** tarayıcıya hiçbir anahtar vermez: `lib/admin-db.ts` istekleri `/api/admin/sb/*` proxy'sine yollar; proxy httpOnly admin cookie'sini doğrular ve `service_role` ile PostgREST'e iletir.
+- Herkese açık formlar (`venue_applications`, `event_suggestions`) `/api/submit` üzerinden: doğrulama + honeypot + IP başına rate limit.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Scraper'lar
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+npx tsx scripts/run_scrapers.ts            # hepsi
+npx tsx scripts/run_scrapers.ts bubilet    # tek kaynak
+```
 
-## Deploy on Vercel
+`.github/workflows/scrape_events.yml` 6 saatte bir çalışır. Repo secrets: `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`. Çekilen etkinlikler `is_approved=false` ile admin onayına düşer.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Sayfalar
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+| Yol | Açıklama |
+|---|---|
+| `/` | Harita + akış, keşif modları, filtreler (`?event=ID` ile etkinlik açılır) |
+| `/etkinlik/[id]` | SSR/ISR etkinlik sayfası, OG + JSON-LD (paylaşım ve SEO) |
+| `/login`, `/reset-password` | Giriş, kayıt (KVKK onaylı), şifre sıfırlama |
+| `/profile`, `/onboarding`, `/calendar` | Kullanıcı alanı (hesap silme dahil) |
+| `/venue` | Mekân sahibinin etkinlik önermesi |
+| `/admin` | Yönetim paneli (env şifresi) |
+| `/kvkk` | Aydınlatma metni — **köşeli parantezli alanları doldurun** |
+
+## Deploy (Vercel)
+
+1. Migration'ı Supabase'de çalıştırın.
+2. Vercel > Settings > Environment Variables'a yukarıdaki değişkenleri ekleyin.
+3. Supabase > Authentication > URL Configuration: *Site URL* = `NEXT_PUBLIC_SITE_URL`, *Redirect URLs*'e `<site>/reset-password` ve `<site>/onboarding` ekleyin.
+4. GitHub repo secrets'a `NEXT_PUBLIC_SUPABASE_URL` ve `SUPABASE_SERVICE_ROLE_KEY` ekleyin (scraper workflow).

@@ -1,12 +1,15 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { supabase } from '@/lib/supabase'
+import { adminDb as supabase } from '@/lib/admin-db'
+import AdminGate from '@/components/AdminGate'
+import type { LucideIcon } from 'lucide-react'
+import type { Event } from '@/lib/types'
 import { Calendar, MapPin, BarChart3, TrendingUp, Users, Eye, Ticket, Share2, ArrowLeft } from 'lucide-react'
 import Link from 'next/link'
 
 // Stats card component
-const StatCard = ({ title, value, icon: Icon, color }: { title: string, value: number | string, icon: any, color: string }) => (
+const StatCard = ({ title, value, icon: Icon, color }: { title: string, value: number | string, icon: LucideIcon, color: string }) => (
     <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700">
         <div className="flex items-center justify-between">
             <div>
@@ -18,8 +21,12 @@ const StatCard = ({ title, value, icon: Icon, color }: { title: string, value: n
     </div>
 )
 
-export default function PastEvents() {
-    const [pastEvents, setPastEvents] = useState<any[]>([])
+export default function PastEventsPage() {
+    return <AdminGate><PastEvents /></AdminGate>
+}
+
+function PastEvents() {
+    const [pastEvents, setPastEvents] = useState<Event[]>([])
     const [stats, setStats] = useState({
         total: 0,
         byCategory: {} as Record<string, number>,
@@ -28,11 +35,8 @@ export default function PastEvents() {
     })
     const [loading, setLoading] = useState(true)
 
-    useEffect(() => {
-        fetchPastEvents()
-    }, [])
 
-    const fetchPastEvents = async () => {
+    async function fetchPastEvents() {
         setLoading(true)
 
         // Fetch past events (start_time < now)
@@ -76,21 +80,14 @@ export default function PastEvents() {
         setLoading(false)
     }
 
-    const [pin, setPin] = useState('')
+    useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- mount'ta veri çekme
+        fetchPastEvents()
+    }, [])
+
 
     return (
         <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-12 px-4 font-sans text-gray-800 dark:text-gray-100">
-            {pin !== '1823' ? (
-                <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
-                    <div className="p-8 bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-200 dark:border-gray-700 text-center space-y-4 max-w-sm w-full">
-                        <div className="w-16 h-16 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center mx-auto text-3xl">🔒</div>
-                        <h1 className="text-xl font-black text-gray-900 dark:text-white">GEÇMİŞ ETKİNLİKLER</h1>
-                        <p className="text-sm text-gray-500">Güvenlik kodunu giriniz.</p>
-                        <input autoFocus type="password" value={pin} onChange={(e) => setPin(e.target.value)} className="w-full text-center text-3xl font-mono tracking-widest border-2 border-gray-200 dark:border-gray-600 rounded-xl p-3 focus:border-brand focus:ring-4 focus:ring-brand/10 bg-gray-50 dark:bg-gray-900 outline-none transition" placeholder="****" maxLength={4} />
-                    </div>
-                    <Link href="/admin" className="text-sm font-bold text-gray-500 hover:text-black dark:hover:text-white transition">← Admin Panele Dön</Link>
-                </div>
-            ) : (
                 <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in">
 
                     {/* Header */}
@@ -180,7 +177,6 @@ export default function PastEvents() {
                     </div>
 
                 </div>
-            )}
         </div>
     )
 }

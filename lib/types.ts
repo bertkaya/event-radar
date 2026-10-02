@@ -8,6 +8,8 @@ export interface Venue {
   phone?: string;
   email?: string;
   website?: string;
+  maps_url?: string;
+  city?: string;
   created_at?: string;
 }
 
@@ -60,6 +62,7 @@ export interface Event {
 
   // Media
   image_url?: string;
+  media_url?: string;
   summary?: string;
 
   // Status
@@ -83,3 +86,72 @@ export interface Event {
   venues?: Venue;
   organizers?: Organizer;
 }
+
+export type LatLng = { lat: number; lng: number };
+
+export interface MapLocation extends LatLng {
+  name?: string;
+  zoom: number;
+}
+
+/** Listeden (ScoredEvent) ya da düz Event olarak seçilebilen etkinlik */
+export type SelectableEvent = Event & {
+  matchScore?: number;
+  matchReason?: string;
+  distanceKm?: number;
+  walkMinutes?: number;
+};
+
+export interface Review {
+  id: number;
+  event_id: number;
+  user_id: string;
+  rating: number;
+  comment: string;
+  status: string;
+  created_at: string;
+}
+
+export interface AppNotification {
+  id: string;
+  user_id: string;
+  title: string;
+  message: string;
+  link?: string;
+  is_read: boolean;
+  created_at: string;
+}
+
+export interface VenueApplication {
+  id: number;
+  venue_name: string;
+  contact_name?: string;
+  phone?: string;
+  email?: string;
+  message?: string;
+  created_at: string;
+}
+
+export interface ScraperLog {
+  id: number;
+  scraper_name: string;
+  status: 'running' | 'success' | 'failed';
+  events_count: number;
+  error_message?: string | null;
+  duration_ms?: number | null;
+  created_at: string;
+}
+
+export interface Profile {
+  id: string;
+  full_name?: string;
+  preferences?: string[];
+  playlist_url?: string;
+  music_vibe?: string;
+}
+
+/** Excel / sheet_to_json satırı */
+export type SheetRow = Record<string, string | number | boolean | undefined>;
+
+/** e?.stopPropagation() çağrılan, event'i opsiyonel handler'lar */
+export type MaybeEvent = { stopPropagation(): void } | null | undefined;

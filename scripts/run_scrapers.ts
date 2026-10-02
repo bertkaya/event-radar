@@ -13,10 +13,16 @@ dotenv.config({ path: '.env.local' });
 dotenv.config();
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+// RLS açıkken anon anahtar yazamaz; scraper'lar service_role ister
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
 if (!supabaseUrl || !supabaseKey) {
-    console.warn('Supabase keys missing. Printing to console instead of DB.');
+    console.warn('SUPABASE_SERVICE_ROLE_KEY eksik. DB yerine konsola yazılıyor (simülasyon).');
+}
+
+if (process.env.CI && !supabaseKey) {
+    console.error('CI ortamında SUPABASE_SERVICE_ROLE_KEY secret tanımlı değil.');
+    process.exit(1);
 }
 
 const supabase = (supabaseUrl && supabaseKey) ? createClient(supabaseUrl, supabaseKey) : null;

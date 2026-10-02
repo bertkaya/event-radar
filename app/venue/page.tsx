@@ -1,14 +1,17 @@
 // app/venue/page.tsx
 'use client'
 
+import type { Event } from '@/lib/types'
+import type { User as AuthUser } from '@supabase/supabase-js'
+import { toast } from '@/lib/toast'
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { Plus, Clock, CheckCircle, MapPin, Calendar, Image as ImageIcon, LogOut } from 'lucide-react'
 
 export default function VenuePortal() {
-  const [user, setUser] = useState<any>(null)
-  const [events, setEvents] = useState<any[]>([])
+  const [user, setUser] = useState<AuthUser | null>(null)
+  const [events, setEvents] = useState<Event[]>([])
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [showForm, setShowForm] = useState(false)
@@ -53,14 +56,15 @@ export default function VenuePortal() {
     const match = url.match(regex);
     if (match) {
       setFormData(prev => ({ ...prev, lat: match[1], lng: match[2] }));
-      alert(`✅ Konum bulundu!`);
+      toast(`✅ Konum bulundu!`);
     } else {
-      alert('❌ Linkten konum alınamadı.');
+      toast('❌ Linkten konum alınamadı.');
     }
   }
 
-  const handleSubmit = async (e: any) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!user) return
     setSubmitting(true)
 
     try {
@@ -90,19 +94,19 @@ export default function VenuePortal() {
 
       if (error) throw error
 
-      alert('✅ Etkinlik gönderildi! Admin onayından sonra yayına girecek.')
+      toast('✅ Etkinlik gönderildi! Admin onayından sonra yayına girecek.')
       setFormData({ title: '', venue_name: '', category: 'Müzik', price: '', date: '', time: '', lat: '', lng: '', description: '', maps_url: '', image_url: '', ticket_url: '' })
       setShowForm(false)
       fetchMyEvents(user.id)
 
-    } catch (error: any) {
-      alert('Hata: ' + error.message)
+    } catch (error) {
+      toast('Hata: ' + (error as Error).message)
     } finally {
       setSubmitting(false)
     }
   }
 
-  const handleChange = (e: any) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value })
   }
 
@@ -118,7 +122,7 @@ export default function VenuePortal() {
           <p className="text-xs text-gray-500">Etkinliklerini buradan yönet</p>
         </div>
         <div className="flex items-center gap-4">
-           <span className="text-xs font-bold hidden md:block">{user.email}</span>
+           <span className="text-xs font-bold hidden md:block">{user?.email}</span>
            <button onClick={() => router.push('/')} className="text-gray-400 hover:text-red-600"><LogOut size={20}/></button>
         </div>
       </div>

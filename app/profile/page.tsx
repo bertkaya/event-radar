@@ -1,6 +1,9 @@
 // app/profile/page.tsx
 'use client'
 
+import type { Event, Profile } from '@/lib/types'
+import type { User as AuthUser } from '@supabase/supabase-js'
+import { toast } from '@/lib/toast'
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
@@ -9,9 +12,9 @@ import Link from 'next/link'
 import { formatPrice } from '@/lib/utils'
 
 export default function Profile() {
-  const [user, setUser] = useState<any>(null)
-  const [profile, setProfile] = useState<any>(null)
-  const [favorites, setFavorites] = useState<any[]>([])
+  const [user, setUser] = useState<AuthUser | null>(null)
+  const [profile, setProfile] = useState<Profile | null>(null)
+  const [favorites, setFavorites] = useState<Event[]>([])
   const [loading, setLoading] = useState(true)
 
   // Yeni State'ler (Müzik)
@@ -21,9 +24,8 @@ export default function Profile() {
 
   const router = useRouter()
 
-  useEffect(() => { getProfileData() }, [])
 
-  const getProfileData = async () => {
+  async function getProfileData() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { router.push('/login'); return }
     setUser(user)
@@ -39,19 +41,35 @@ export default function Profile() {
 
     const { data: favData } = await supabase.from('favorites').select('event_id, events (*)').eq('user_id', user.id)
     if (favData) {
-      const favEvents = favData.map((f: any) => f.events).filter(Boolean)
+      const favEvents = favData.map((f) => f.events as unknown as Event | null).filter((e): e is Event => Boolean(e))
       setFavorites(favEvents)
     }
     setLoading(false)
   }
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- mount'ta veri çekme
+  useEffect(() => { getProfileData() }, [])
+
   const handleLogout = async () => { await supabase.auth.signOut(); router.push('/') }
 
+  const handleDeleteAccount = async () => {
+    if (!confirm('Hesabın ve tüm kişisel verilerin (favoriler, takipler, yorumlar) kalıcı olarak silinecek. Emin misin?')) return
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) return router.push('/login')
+    const res = await fetch('/api/account/delete', { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}` } })
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) return toast(json.error || 'Hesap silinemedi.', 'error')
+    await supabase.auth.signOut()
+    toast('Hesabın silindi.', 'success')
+    router.push('/')
+  }
+
   const saveMusicProfile = async () => {
+    if (!user || !profile) return
     setIsSaving(true)
     // 1. Link Kontrolü (Basit)
     if (playlistLink && !playlistLink.includes('spotify') && !playlistLink.includes('youtube')) {
-      alert('Lütfen geçerli bir Spotify veya YouTube linki girin.')
+      toast('Lütfen geçerli bir Spotify veya YouTube linki girin.')
       setIsSaving(false)
       return
     }
@@ -71,25 +89,29 @@ export default function Profile() {
       await supabase.from('profiles').update({ preferences: newPrefs }).eq('id', user.id)
 
       // HATA VEREN SATIR DÜZELTİLDİ: (prev: any) eklendi
-      setProfile((prev: any) => ({ ...prev, preferences: newPrefs }))
+      setProfile((prev) => (prev ? { ...prev, preferences: newPrefs } : prev))
     }
 
-    alert('Müzik kimliğin güncellendi! Öneriler buna göre şekillenecek.')
+    toast('Müzik kimliğin güncellendi! Öneriler buna göre şekillenecek.')
     setIsSaving(false)
   }
 
   const removePreference = async (pref: string) => {
-    const newPrefs = profile.preferences.filter((p: string) => p !== pref)
+    if (!user || !profile) return
+    const newPrefs = (profile.preferences || []).filter((p: string) => p !== pref)
     setProfile({ ...profile, preferences: newPrefs })
     await supabase.from('profiles').update({ preferences: newPrefs }).eq('id', user.id)
   }
 
   const removeFavorite = async (eventId: number) => {
+    if (!user) return
     setFavorites(favorites.filter(e => e.id !== eventId))
     await supabase.from('favorites').delete().match({ user_id: user.id, event_id: eventId })
   }
 
-  if (loading) return <div className="h-screen flex items-center justify-center text-brand font-bold animate-pulse bg-white dark:bg-gray-900">Profil Yükleniyor...</div>
+  if (loading || !user) return <div className="h-screen flex items-center justify-center text-brand font-bold animate-pulse bg-white dark:bg-gray-900">Profil Yükleniyor...</div>
+
+  const email = user.email || ''
 
   const now = new Date()
   const upcomingEvents = favorites.filter(e => new Date(e.start_time) >= now)
@@ -107,10 +129,10 @@ export default function Profile() {
 
         {/* KULLANICI KARTI */}
         <div className="bg-white dark:bg-gray-800 p-6 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700 flex flex-col md:flex-row items-center gap-6">
-          <div className="w-24 h-24 bg-gradient-to-br from-brand to-red-900 text-white rounded-full flex items-center justify-center text-4xl font-black shadow-lg border-4 border-white dark:border-gray-700">{user.email[0].toUpperCase()}</div>
+          <div className="w-24 h-24 bg-gradient-to-br from-brand to-red-900 text-white rounded-full flex items-center justify-center text-4xl font-black shadow-lg border-4 border-white dark:border-gray-700">{(email[0] || '?').toUpperCase()}</div>
           <div className="text-center md:text-left flex-1">
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{user.email.split('@')[0]}</h2>
-            <p className="text-sm text-gray-400 font-medium mb-4">{user.email}</p>
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{email.split('@')[0]}</h2>
+            <p className="text-sm text-gray-400 font-medium mb-4">{email}</p>
 
             {/* Müzik Rozeti */}
             {profile?.music_vibe && (
@@ -189,7 +211,7 @@ export default function Profile() {
             {upcomingEvents.length === 0 && (
               <div className="bg-white dark:bg-gray-800 p-10 rounded-3xl border border-dashed border-gray-300 dark:border-gray-600 text-center"><Star className="mx-auto text-gray-300 mb-2" size={40} /><p className="text-gray-400 text-sm font-medium">Listen henüz boş.</p><Link href="/" className="text-brand text-sm font-bold hover:underline mt-2 block">Keşfetmeye Başla</Link></div>
             )}
-            {upcomingEvents.map((event: any) => (
+            {upcomingEvents.map((event) => (
               <div key={event.id} className="group bg-white dark:bg-gray-800 p-4 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 flex gap-4 hover:shadow-md transition relative overflow-hidden">
                 <button onClick={(e) => { e.preventDefault(); removeFavorite(event.id); }} className="absolute top-2 right-2 p-1.5 bg-white dark:bg-gray-700 text-gray-400 hover:text-red-500 rounded-full shadow-sm z-10 opacity-0 group-hover:opacity-100 transition" title="Listeden Çıkar"><X size={16} /></button>
                 <div className="w-24 h-24 bg-brand rounded-xl shrink-0 overflow-hidden relative flex items-center justify-center">
@@ -214,7 +236,7 @@ export default function Profile() {
           <div className="pt-8 opacity-60 grayscale hover:grayscale-0 transition-all duration-500">
             <h3 className="font-bold text-gray-500 mb-4 flex items-center gap-2 px-2 text-sm uppercase tracking-wider"><History size={16} /> Geçmiş Etkinlikler</h3>
             <div className="space-y-3">
-              {pastEvents.map((event: any) => (
+              {pastEvents.map((event) => (
                 <div key={event.id} className="bg-gray-100 dark:bg-gray-800 p-3 rounded-xl flex gap-3 items-center">
                   <div className="w-12 h-12 bg-gray-300 dark:bg-gray-700 rounded-lg shrink-0 overflow-hidden">
                     {event.image_url && <img src={event.image_url} className="w-full h-full object-cover" />}
@@ -228,6 +250,12 @@ export default function Profile() {
             </div>
           </div>
         )}
+
+        {/* HESAP / KVKK */}
+        <div className="pt-6 border-t border-gray-200 dark:border-gray-700 flex flex-wrap justify-between items-center gap-3 text-xs">
+          <Link href="/kvkk" className="text-gray-500 hover:text-brand underline">KVKK &amp; Gizlilik</Link>
+          <button onClick={handleDeleteAccount} className="text-red-500 font-bold hover:underline">Hesabımı Sil</button>
+        </div>
 
       </div>
     </div>

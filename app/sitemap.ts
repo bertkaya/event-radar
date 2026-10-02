@@ -1,40 +1,34 @@
+import { MetadataRoute } from 'next'
+import { getSupabasePublic } from '@/lib/supabase-server'
+import { SITE_URL, eventUrl } from '@/lib/site'
 
-import { createClient } from '@supabase/supabase-js';
-import { MetadataRoute } from 'next';
-
-const BASE_URL = 'https://18-23.com';
+export const revalidate = 3600
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+  const now = new Date().toISOString()
+  const staticRoutes: MetadataRoute.Sitemap = [
+    { url: SITE_URL, lastModified: now, changeFrequency: 'hourly', priority: 1 },
+    { url: `${SITE_URL}/kvkk`, lastModified: now, changeFrequency: 'yearly', priority: 0.1 },
+  ]
 
-  const supabase = createClient(supabaseUrl, supabaseKey);
+  const supabase = getSupabasePublic()
+  if (!supabase) return staticRoutes
 
-  // Static Routes
-  const routes = [
-    '',
-    '/calendar',
-    '/login',
-    '/admin',
-  ].map((route) => ({
-    url: `${BASE_URL}${route}`,
-    lastModified: new Date().toISOString(),
-    changeFrequency: 'daily' as const,
-    priority: 1,
-  }));
-
-  // Fetch Events for Dynamic Routes
+  // Yalnızca gelecekteki onaylı etkinlikler (RLS zaten onaysızları gizler)
   const { data: events } = await supabase
     .from('events')
-    .select('id, start_time')
-    .eq('is_approved', true);
+    .select('id, created_at')
+    .eq('is_approved', true)
+    .gte('start_time', new Date().toISOString())
+    .order('start_time', { ascending: true })
+    .limit(5000)
 
-  const eventRoutes = events?.map((event) => ({
-    url: `${BASE_URL}/?event_id=${event.id}`, // Setup as query param or dynamic route if we had one like /event/[id]
-    lastModified: event.start_time,
-    changeFrequency: 'weekly' as const,
+  const eventRoutes: MetadataRoute.Sitemap = (events || []).map(e => ({
+    url: eventUrl(e.id),
+    lastModified: e.created_at,
+    changeFrequency: 'daily',
     priority: 0.8,
-  })) || [];
+  }))
 
-  return [...routes, ...eventRoutes];
+  return [...staticRoutes, ...eventRoutes]
 }

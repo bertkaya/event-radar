@@ -1,10 +1,27 @@
 'use client'
 
+import { toast } from '@/lib/toast'
 import { useState, useEffect, useRef } from 'react'
-import { supabase } from '@/lib/supabase'
+import { adminDb as supabase } from '@/lib/admin-db'
+import AdminGate, { adminLogout } from '@/components/AdminGate'
 import { Trash2, Edit, Upload, ImageIcon, MapPin, Calendar, Check, AlertTriangle, Ban, Music, Inbox, List, Phone, Mail, User, FileSpreadsheet, Download, Plus, Search, Info, Activity, X, ExternalLink, Clock, Copy, Link as LinkIcon } from 'lucide-react'
 import * as XLSX from 'xlsx'
-import { Venue, Organizer } from '@/lib/types'
+import type { Venue, Organizer, Event, VenueApplication, ScraperLog, SheetRow, TicketDetail } from '@/lib/types'
+
+interface ScrapedSession { city: string; date: string; time: string; venue: string; price?: string }
+interface ScrapedEventData {
+  title: string; description?: string; category?: string; image_url?: string; ticket_url?: string
+  duration?: string; rules?: string[]; venues?: string[]; sessions?: ScrapedSession[]
+}
+
+/** Excel satırında verilen başlıklardan ilk dolu olanı string olarak döndürür */
+const cell = (row: SheetRow, ...keys: string[]): string => {
+  for (const k of keys) {
+    const v = row[k]
+    if (v !== undefined && v !== null && v !== '') return String(v).trim()
+  }
+  return ''
+}
 import Link from 'next/link'
 
 // Standardized categories - expanded list
@@ -28,16 +45,19 @@ const MOODS = [
   'Keşif & Yeni Deneyim ✨'
 ]
 
-export default function Admin() {
+export default function AdminPage() {
+  return <AdminGate><Admin /></AdminGate>
+}
+
+function Admin() {
   const [activeTab, setActiveTab] = useState<'events' | 'applications' | 'health'>('events')
   const [loading, setLoading] = useState(false)
   const [msg, setMsg] = useState('')
-  const [pin, setPin] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const [events, setEvents] = useState<any[]>([])
-  const [applications, setApplications] = useState<any[]>([])
-  const [scraperLogs, setScraperLogs] = useState<any[]>([])
+  const [events, setEvents] = useState<Event[]>([])
+  const [applications, setApplications] = useState<VenueApplication[]>([])
+  const [scraperLogs, setScraperLogs] = useState<ScraperLog[]>([])
   const [venues, setVenues] = useState<Venue[]>([])
   const [organizers, setOrganizers] = useState<Organizer[]>([])
 
@@ -64,7 +84,7 @@ export default function Admin() {
     tags: '', // Comma separated
     organizer_id: '',
     is_single_day: true,
-    ticket_details: [] as any[],
+    ticket_details: [] as TicketDetail[],
     ai_mood: '',
     // Featured/Promotion fields
     is_featured: false,
@@ -82,9 +102,9 @@ export default function Admin() {
   const [showPastEvents, setShowPastEvents] = useState(false)
   const [linkImportUrl, setLinkImportUrl] = useState('')
   const [linkImportLoading, setLinkImportLoading] = useState(false)
-  const [scrapedSessions, setScrapedSessions] = useState<any[]>([])
+  const [scrapedSessions, setScrapedSessions] = useState<ScrapedSession[]>([])
   const [selectedSessions, setSelectedSessions] = useState<number[]>([])
-  const [scrapedEventData, setScrapedEventData] = useState<any>(null)
+  const [scrapedEventData, setScrapedEventData] = useState<ScrapedEventData | null>(null)
 
   // Bulk venue upload
   const [showBulkVenueModal, setShowBulkVenueModal] = useState(false)
@@ -125,18 +145,17 @@ export default function Admin() {
   }
 
   const triggerAutoFetch = async () => {
-    if (pin !== '1823') return alert('PIN gerekli!')
     setLoading(true); setMsg('Yayındaki etkinlikler kontrol ediliyor... Bu 2-5 dakika sürebilir.')
     try {
       const res = await fetch('/api/run-scrapers', { method: 'POST' })
       const json = await res.json()
       if (json.success) {
-        alert(`✅ Başarılı! Etkinlikler kontrol edildi ve güncellendi.`);
+        toast(`✅ Başarılı! Etkinlikler kontrol edildi ve güncellendi.`);
         fetchEvents();
         fetchScraperLogs();
       }
-      else alert('Hata: ' + (json.error || json.message))
-    } catch (e: any) { alert('Hata: ' + e.message) }
+      else toast('Hata: ' + (json.error || json.message))
+    } catch (e) { toast('Hata: ' + (e as Error).message) }
     finally { setLoading(false); setMsg('') }
   }
 
@@ -193,28 +212,27 @@ export default function Admin() {
     XLSX.writeFile(wb, "Etkinlik_Yukleme_Sablonu.xlsx");
   }
 
-  const handleExcelUpload = (e: any) => {
-    if (pin !== '1823') { if (fileInputRef.current) fileInputRef.current.value = ''; return alert('PIN girin!') }
-    const file = e.target.files[0]; if (!file) return;
+  const handleExcelUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; if (!file) return;
     const reader = new FileReader();
-    reader.onload = async (evt: any) => {
+    reader.onload = async (evt: ProgressEvent<FileReader>) => {
       try {
-        const wb = XLSX.read(evt.target.result, { type: 'binary' });
-        const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
-        if (data.length === 0) return alert('Boş dosya!');
+        const wb = XLSX.read(evt.target?.result, { type: 'binary' });
+        const data = XLSX.utils.sheet_to_json<SheetRow>(wb.Sheets[wb.SheetNames[0]]);
+        if (data.length === 0) return toast('Boş dosya!');
         if (!confirm(`${data.length} etkinlik yüklenecek. Onay?`)) return;
 
         setLoading(true);
-        const formattedData = data.map((row: any) => {
+        const formattedData = data.map((row) => {
           // Parse Rules
-          let rules = [];
+          let rules: string[] = [];
           if (row.Kurallar) {
             rules = row.Kurallar.toString().split(' | ').filter((r: string) => r.trim() !== '');
           }
 
           // Parse Ticket Details from Price column if complex format
           // Format expected: "Tam: 100 TL | Öğrenci: 80 TL"
-          let ticketDetails: any[] = [];
+          const ticketDetails: TicketDetail[] = [];
           let price = row.Fiyat ? row.Fiyat.toString() : "";
 
           if (price.includes('|') || price.includes(':')) {
@@ -232,13 +250,13 @@ export default function Admin() {
           }
 
           // Date Parser for EU Format (DD.MM.YYYY HH:mm) or ISO
-          const parseDate = (d: any) => {
+          const parseDate = (d: SheetRow[string]) => {
             if (!d) return null;
             const str = d.toString().trim();
             // Check for DD.MM.YYYY format
             const euMatch = str.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})(?:\s+(\d{1,2}):(\d{1,2}))?$/);
             if (euMatch) {
-              const [_, day, month, year, hour, min] = euMatch;
+              const [, day, month, year, hour, min] = euMatch;
               return new Date(`${year}-${month}-${day}T${hour || '00'}:${min || '00'}:00`).toISOString();
             }
             // Fallback to standard parser
@@ -253,28 +271,28 @@ export default function Admin() {
             price: price,
             start_time: parseDate(row.Baslangic) || new Date().toISOString(),
             end_time: parseDate(row.Bitis),
-            lat: parseFloat(row.Enlem || 0),
-            lng: parseFloat(row.Boylam || 0),
+            lat: parseFloat(cell(row, 'Enlem')) || 0,
+            lng: parseFloat(cell(row, 'Boylam')) || 0,
             description: row.Aciklama || "",
             image_url: row.Resim || "",
             ticket_url: row.Bilet || "",
-            rules: rules,
+            rules: rules.join('\n'),
             ticket_details: ticketDetails,
-            tags: row.Tags ? row.Tags.split(',').map((t: string) => t.trim()) : [],
+            tags: cell(row, 'Tags') ? cell(row, 'Tags').split(',').map((t: string) => t.trim()) : [],
             is_approved: true, sold_out: false
           };
         });
 
         const { error } = await supabase.from('events').insert(formattedData);
         if (error) throw error;
-        alert('✅ Yüklendi!'); fetchEvents();
-      } catch (err: any) { alert('Hata: ' + err.message); } finally { setLoading(false); if (fileInputRef.current) fileInputRef.current.value = ''; }
+        toast('✅ Yüklendi!'); fetchEvents();
+      } catch (err) { toast('Hata: ' + (err as Error).message); } finally { setLoading(false); if (fileInputRef.current) fileInputRef.current.value = ''; }
     };
     reader.readAsBinaryString(file);
   };
 
   // --- ACTIONS ---
-  const handleEditClick = (event: any) => {
+  const handleEditClick = (event: Event) => {
     setEditingId(event.id)
     const start = new Date(event.start_time)
     const end = event.end_time ? new Date(event.end_time) : null
@@ -314,7 +332,7 @@ export default function Admin() {
   }
 
   // Copy event for duplication
-  const handleCopyEvent = (event: any) => {
+  const handleCopyEvent = (event: Event) => {
     const start = new Date(event.start_time)
     const end = event.end_time ? new Date(event.end_time) : null
 
@@ -351,7 +369,7 @@ export default function Admin() {
     })
     setEditingId(null) // Not editing, creating new
     window.scrollTo({ top: 0, behavior: 'smooth' })
-    alert('✅ Etkinlik kopyalandı! Yeni tarih ve mekan girerek kaydedin.')
+    toast('✅ Etkinlik kopyalandı! Yeni tarih ve mekan girerek kaydedin.')
   }
 
   const handleCancelEdit = () => { setEditingId(null); resetForm(); }
@@ -368,14 +386,12 @@ export default function Admin() {
   }
 
   const handleApprove = async (id: number) => {
-    if (pin !== '1823') return alert('Yetkisiz!')
     await supabase.from('events').update({ is_approved: true }).eq('id', id)
     fetchEvents()
   }
 
   const handleDelete = async (id: number) => {
     if (!confirm('Emin misin?')) return
-    if (pin !== '1823') return alert('Yetkisiz!')
     await supabase.from('events').delete().eq('id', id)
     fetchEvents()
   }
@@ -389,13 +405,12 @@ export default function Admin() {
   const extractCoordsFromLink = () => {
     const url = formData.maps_url;
     const match = url.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
-    if (match) { setFormData(prev => ({ ...prev, lat: match[1], lng: match[2] })); alert(`✅ Koordinat: ${match[1]}, ${match[2]}`); }
-    else { alert('❌ Koordinat okunamadı. Link formatı: .../maps/...@lat,lng,...'); }
+    if (match) { setFormData(prev => ({ ...prev, lat: match[1], lng: match[2] })); toast(`✅ Koordinat: ${match[1]}, ${match[2]}`); }
+    else { toast('❌ Koordinat okunamadı. Link formatı: .../maps/...@lat,lng,...'); }
   }
 
-  const handleSubmit = async (e: any) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (pin !== '1823') return alert('Hatalı PIN!')
     setLoading(true); setMsg('')
 
     try {
@@ -477,29 +492,27 @@ export default function Admin() {
         }
       }
       resetForm(); fetchEvents()
-    } catch (error: any) { setMsg('❌ Hata: ' + error.message) }
+    } catch (error) { setMsg('❌ Hata: ' + (error as Error).message) }
     finally { setLoading(false) }
   }
 
   // Quick inline update for category/mood
   const handleQuickUpdate = async (eventId: number, field: string, value: string) => {
-    if (pin !== '1823') return alert('PIN gerekli!')
     await supabase.from('events').update({ [field]: value }).eq('id', eventId)
     setEvents(events.map(e => e.id === eventId ? { ...e, [field]: value } : e))
   }
 
   // Add new organizer
   const handleAddOrganizer = async () => {
-    if (pin !== '1823') return alert('PIN gerekli!')
-    if (!newOrganizerForm.name) return alert('Organizatör adı gerekli!')
+    if (!newOrganizerForm.name) return toast('Organizatör adı gerekli!')
     const { data, error } = await supabase.from('organizers').insert([newOrganizerForm]).select().single()
     if (data) {
       setOrganizers([...organizers, data])
       setShowOrganizerModal(false)
       setNewOrganizerForm({ name: '', logo_url: '', contact_email: '' })
-      alert('✅ Organizatör eklendi!')
+      toast('✅ Organizatör eklendi!')
     } else if (error) {
-      alert('Hata: ' + error.message)
+      toast('Hata: ' + error.message)
     }
   }
 
@@ -507,12 +520,11 @@ export default function Admin() {
   // Format: name | address | lat,lng | city | maps_url (one per line)
   // Or: name | google_maps_url (will extract coordinates)
   const handleBulkVenueUpload = async () => {
-    if (pin !== '1823') return alert('PIN gerekli!')
-    if (!bulkVenueText.trim()) return alert('Mekan verileri gerekli!')
+    if (!bulkVenueText.trim()) return toast('Mekan verileri gerekli!')
 
     setBulkVenueLoading(true)
     const lines = bulkVenueText.trim().split('\n').filter(l => l.trim())
-    const venues: any[] = []
+    const venues: Partial<Venue>[] = []
     let errors = 0
 
     for (const line of lines) {
@@ -523,7 +535,7 @@ export default function Admin() {
       }
 
       const name = parts[0]
-      let address = parts[1] || ''
+      const address = parts[1] || ''
       let lat: number | undefined
       let lng: number | undefined
       let city = ''
@@ -568,13 +580,13 @@ export default function Admin() {
         lat,
         lng,
         city,
-        maps_url: mapsUrl || null
+        maps_url: mapsUrl || undefined
       })
     }
 
     if (venues.length === 0) {
       setBulkVenueLoading(false)
-      return alert('Geçerli mekan bulunamadı!')
+      return toast('Geçerli mekan bulunamadı!')
     }
 
     // Upsert venues (update if name exists)
@@ -587,7 +599,7 @@ export default function Admin() {
     setBulkVenueLoading(false)
     setShowBulkVenueModal(false)
     setBulkVenueText('')
-    alert(`✅ ${inserted} mekan eklendi/güncellendi! (${errors} hata)`)
+    toast(`✅ ${inserted} mekan eklendi/güncellendi! (${errors} hata)`)
     fetchResources()
   }
 
@@ -663,7 +675,6 @@ export default function Admin() {
 
   // Handle venue Excel upload
   const handleVenueExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (pin !== '1823') return alert('PIN gerekli!')
     const file = e.target.files?.[0]
     if (!file) return
 
@@ -672,15 +683,15 @@ export default function Admin() {
       const data = await file.arrayBuffer()
       const workbook = XLSX.read(data)
       const sheet = workbook.Sheets[workbook.SheetNames[0]]
-      const rows: any[] = XLSX.utils.sheet_to_json(sheet)
+      const rows = XLSX.utils.sheet_to_json<SheetRow>(sheet)
 
-      const venues: any[] = rows.map(row => ({
-        name: row['Mekan Adı'] || row['name'] || '',
-        address: row['Adres'] || row['address'] || '',
-        lat: parseFloat(row['Enlem (Lat)'] || row['lat'] || 0) || null,
-        lng: parseFloat(row['Boylam (Lng)'] || row['lng'] || 0) || null,
-        city: row['Şehir'] || row['city'] || '',
-        maps_url: row['Google Maps URL'] || row['maps_url'] || null
+      const venues = rows.map(row => ({
+        name: cell(row, 'Mekan Adı', 'name'),
+        address: cell(row, 'Adres', 'address'),
+        lat: parseFloat(cell(row, 'Enlem (Lat)', 'lat')) || null,
+        lng: parseFloat(cell(row, 'Boylam (Lng)', 'lng')) || null,
+        city: cell(row, 'Şehir', 'city'),
+        maps_url: cell(row, 'Google Maps URL', 'maps_url') || null
       })).filter(v => v.name)
 
       let inserted = 0
@@ -689,10 +700,10 @@ export default function Admin() {
         if (!error) inserted++
       }
 
-      alert(`✅ ${inserted} mekan yüklendi!`)
+      toast(`✅ ${inserted} mekan yüklendi!`)
       fetchResources()
-    } catch (err: any) {
-      alert('Hata: ' + err.message)
+    } catch (err) {
+      toast('Hata: ' + (err as Error).message)
     } finally {
       setLoading(false)
       if (venueExcelRef.current) venueExcelRef.current.value = ''
@@ -701,7 +712,6 @@ export default function Admin() {
 
   // Handle event Excel upload
   const handleEventExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (pin !== '1823') return alert('PIN gerekli!')
     const file = e.target.files?.[0]
     if (!file) return
 
@@ -710,7 +720,7 @@ export default function Admin() {
       const data = await file.arrayBuffer()
       const workbook = XLSX.read(data)
       const sheet = workbook.Sheets[workbook.SheetNames[0]]
-      const rows: any[] = XLSX.utils.sheet_to_json(sheet)
+      const rows = XLSX.utils.sheet_to_json<SheetRow>(sheet)
 
       const parseDate = (dateStr: string, timeStr: string) => {
         if (!dateStr) return new Date().toISOString()
@@ -723,41 +733,41 @@ export default function Admin() {
         return new Date().toISOString()
       }
 
-      const events: any[] = rows.map(row => ({
-        title: row['Etkinlik Adı'] || row['title'] || '',
-        venue_name: row['Mekan'] || row['venue_name'] || '',
-        address: row['Şehir'] || row['address'] || '',
-        start_time: parseDate(row['Tarih'] || row['date'], row['Saat'] || row['time']),
-        category: row['Kategori'] || row['category'] || 'Müzik',
-        price: row['Fiyat'] || row['price'] || '',
-        description: row['Açıklama'] || row['description'] || '',
-        image_url: row['Görsel URL'] || row['image_url'] || '',
-        ticket_url: row['Bilet URL'] || row['ticket_url'] || '',
-        source_url: row['Bilet URL'] || row['source_url'] || '',
+      const events = rows.map(row => ({
+        title: cell(row, 'Etkinlik Adı', 'title'),
+        venue_name: cell(row, 'Mekan', 'venue_name'),
+        address: cell(row, 'Şehir', 'address'),
+        start_time: parseDate(cell(row, 'Tarih', 'date'), cell(row, 'Saat', 'time')),
+        category: cell(row, 'Kategori', 'category') || 'Müzik',
+        price: cell(row, 'Fiyat', 'price'),
+        description: cell(row, 'Açıklama', 'description'),
+        image_url: cell(row, 'Görsel URL', 'image_url'),
+        ticket_url: cell(row, 'Bilet URL', 'ticket_url'),
+        source_url: cell(row, 'Bilet URL', 'source_url'),
         is_approved: false,
-        ticket_sources: row['Kaynak'] ? [{ source: row['Kaynak'], url: row['Bilet URL'] || '', price: row['Fiyat'] || '' }] : []
+        ticket_sources: cell(row, 'Kaynak') ? [{ source: cell(row, 'Kaynak'), url: cell(row, 'Bilet URL'), price: cell(row, 'Fiyat') }] : []
       })).filter(e => e.title)
 
       if (events.length === 0) {
-        alert('Excel dosyasında geçerli etkinlik bulunamadı!')
+        toast('Excel dosyasında geçerli etkinlik bulunamadı!')
         return
       }
 
       const { error } = await supabase.from('events').insert(events)
       if (error) throw error
 
-      alert(`✅ ${events.length} etkinlik yüklendi!`)
+      toast(`✅ ${events.length} etkinlik yüklendi!`)
       fetchEvents()
-    } catch (err: any) {
-      alert('Hata: ' + err.message)
+    } catch (err) {
+      toast('Hata: ' + (err as Error).message)
     } finally {
       setLoading(false)
       if (eventExcelRef.current) eventExcelRef.current.value = ''
     }
   }
 
-  const handleChange = (e: any) => {
-    const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    const value = e.target instanceof HTMLInputElement && e.target.type === 'checkbox' ? e.target.checked : e.target.value
     setFormData({ ...formData, [e.target.name]: value })
   }
 
@@ -782,17 +792,6 @@ export default function Admin() {
         </div>
       )}
 
-      {/* PIN PROTECTION WALL */}
-      {pin !== '1823' ? (
-        <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
-          <div className="p-8 bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-200 dark:border-gray-700 text-center space-y-4 max-w-sm w-full">
-            <div className="w-16 h-16 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center mx-auto text-3xl">🔒</div>
-            <h1 className="text-xl font-black text-gray-900 dark:text-white">YÖNETİCİ PANELİ</h1>
-            <p className="text-sm text-gray-500">Erişim sağlamak için güvenlik kodunu giriniz.</p>
-            <input autoFocus type="password" value={pin} onChange={(e) => setPin(e.target.value)} className="w-full text-center text-3xl font-mono tracking-widest border-2 border-gray-200 dark:border-gray-600 rounded-xl p-3 focus:border-brand focus:ring-4 focus:ring-brand/10 bg-gray-50 dark:bg-gray-900 outline-none transition" placeholder="****" maxLength={4} />
-          </div>
-        </div>
-      ) : (
         <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in duration-500">
 
           {/* HEADER */}
@@ -800,6 +799,7 @@ export default function Admin() {
             <div className="flex items-center gap-2">
               <h1 className="text-2xl font-black tracking-tighter text-gray-900 dark:text-white">ADMİN PANEL</h1>
               <span className="bg-green-100 text-green-700 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide">Güvenli Mod</span>
+              <button onClick={adminLogout} className="text-xs font-bold text-gray-500 hover:text-brand underline">Çıkış</button>
             </div>
 
             <div className="bg-gray-200 dark:bg-gray-800 p-1 rounded-lg flex gap-1 w-full md:w-auto overflow-x-auto">
@@ -857,7 +857,7 @@ export default function Admin() {
                           </td>
                           <td className="px-6 py-4">{log.duration_ms ? `${(log.duration_ms / 1000).toFixed(1)}sn` : '-'}</td>
                           <td className="px-6 py-4 font-bold">{log.events_count}</td>
-                          <td className="px-6 py-4 text-red-500 truncate max-w-xs" title={log.error_message}>{log.error_message || '-'}</td>
+                          <td className="px-6 py-4 text-red-500 truncate max-w-xs" title={log.error_message || undefined}>{log.error_message || '-'}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -887,7 +887,7 @@ export default function Admin() {
                     type="button"
                     disabled={linkImportLoading || !linkImportUrl}
                     onClick={async () => {
-                      if (!linkImportUrl) return alert('Link girin!')
+                      if (!linkImportUrl) return toast('Link girin!')
                       setLinkImportLoading(true)
                       setScrapedSessions([])
                       setSelectedSessions([])
@@ -912,15 +912,15 @@ export default function Admin() {
                           }))
                           if (d.sessions && d.sessions.length > 0) {
                             setScrapedSessions(d.sessions)
-                            alert(`✅ ${d.sessions.length} seans bulundu! Aşağıdan seçim yapabilirsiniz.`)
+                            toast(`✅ ${d.sessions.length} seans bulundu! Aşağıdan seçim yapabilirsiniz.`)
                           } else {
-                            alert(`✅ Bilgiler çekildi! Seans bulunamadı, manuel girin.`)
+                            toast(`✅ Bilgiler çekildi! Seans bulunamadı, manuel girin.`)
                           }
                         } else {
-                          alert('Hata: ' + (json.error || 'Bilgiler çekilemedi.'))
+                          toast('Hata: ' + (json.error || 'Bilgiler çekilemedi.'))
                         }
-                      } catch (e: any) {
-                        alert('Hata: ' + e.message)
+                      } catch (e) {
+                        toast('Hata: ' + (e as Error).message)
                       } finally {
                         setLinkImportLoading(false)
                       }
@@ -953,7 +953,7 @@ export default function Admin() {
                           </tr>
                         </thead>
                         <tbody>
-                          {scrapedSessions.map((session: any, idx: number) => (
+                          {scrapedSessions.map((session, idx) => (
                             <tr key={idx} className={`border-t dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer ${selectedSessions.includes(idx) ? 'bg-blue-50 dark:bg-blue-900/30' : ''}`}
                               onClick={() => {
                                 if (selectedSessions.includes(idx)) {
@@ -978,8 +978,7 @@ export default function Admin() {
                           type="button"
                           disabled={loading}
                           onClick={async () => {
-                            if (pin !== '1823') return alert('PIN gerekli!')
-                            if (!scrapedEventData) return alert('Önce link çekin!')
+                            if (!scrapedEventData) return toast('Önce link çekin!')
                             setLoading(true)
                             try {
                               const eventsToCreate = selectedSessions.map(idx => {
@@ -996,21 +995,21 @@ export default function Admin() {
                                   lat: 0, lng: 0,
                                   image_url: scrapedEventData.image_url || '',
                                   ticket_url: scrapedEventData.ticket_url || '',
-                                  rules: scrapedEventData.rules || [],
+                                  rules: (scrapedEventData.rules || []).join('\n'),
                                   is_approved: true,
                                   sold_out: false
                                 }
                               })
                               const { error } = await supabase.from('events').insert(eventsToCreate)
                               if (error) throw error
-                              alert(`✅ ${eventsToCreate.length} etkinlik eklendi!`)
+                              toast(`✅ ${eventsToCreate.length} etkinlik eklendi!`)
                               setScrapedSessions([])
                               setSelectedSessions([])
                               setScrapedEventData(null)
                               setLinkImportUrl('')
                               fetchEvents()
-                            } catch (e: any) {
-                              alert('Hata: ' + e.message)
+                            } catch (e) {
+                              toast('Hata: ' + (e as Error).message)
                             } finally {
                               setLoading(false)
                             }
@@ -1495,7 +1494,6 @@ export default function Admin() {
           )}
 
         </div>
-      )}
 
       {/* BULK VENUE UPLOAD MODAL */}
       {showBulkVenueModal && (

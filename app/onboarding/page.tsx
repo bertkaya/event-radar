@@ -1,6 +1,7 @@
 // app/onboarding/page.tsx
 'use client'
 
+import { toast } from '@/lib/toast'
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
@@ -55,11 +56,10 @@ export default function Onboarding() {
     if (user) {
       const { error } = await supabase
         .from('profiles')
-        .update({ preferences: selected })
-        .eq('id', user.id)
+        .upsert({ id: user.id, preferences: selected })
 
       if (!error) router.push('/')
-      else alert('Hata: ' + error.message)
+      else toast('Hata: ' + error.message)
     }
     setSaving(false)
   }

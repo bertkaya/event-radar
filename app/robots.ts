@@ -1,12 +1,13 @@
 import { MetadataRoute } from 'next'
- 
+import { SITE_URL } from '@/lib/site'
+
 export default function robots(): MetadataRoute.Robots {
   return {
     rules: {
       userAgent: '*',
       allow: '/',
-      disallow: '/admin/', // Admin panelini Google'dan gizle
+      disallow: ['/admin', '/api/', '/profile', '/onboarding', '/venue', '/reset-password'],
     },
-    sitemap: 'https://event-radar.vercel.app/sitemap.xml', // Buraya kendi vercel linkini yaz
+    sitemap: `${SITE_URL}/sitemap.xml`,
   }
 }

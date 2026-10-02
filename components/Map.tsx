@@ -1,9 +1,11 @@
 // components/Map.tsx
 'use client'
 
+import { toast } from '@/lib/toast'
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import L from 'leaflet'
+import type { LatLng, MapLocation, SelectableEvent } from '@/lib/types'
 import { useEffect, useState, useMemo } from 'react'
 
 // Özel Pinler
@@ -25,7 +27,14 @@ const gpsIcon = L.divIcon({
 })
 
 // Harita Kontrolcüsü (Beyin)
-function MapController({ selectedEvent, triggerLocate, manualLocation, onLocationFound }: any) {
+interface MapControllerProps {
+  selectedEvent: SelectableEvent | null;
+  triggerLocate: boolean;
+  manualLocation: MapLocation | null;
+  onLocationFound: (latlng: LatLng) => void;
+}
+
+function MapController({ selectedEvent, triggerLocate, manualLocation, onLocationFound }: MapControllerProps) {
   const map = useMap()
 
   // 1. Etkinlik Seçilince Uç
@@ -49,7 +58,7 @@ function MapController({ selectedEvent, triggerLocate, manualLocation, onLocatio
         map.flyTo(e.latlng, 14, { animate: true });
         onLocationFound(e.latlng) // Ana sayfaya "buldum" de
       }).on("locationerror", function (e) {
-        alert("Konum alınamadı. Lütfen manuel seçim yapın veya izinleri kontrol edin.");
+        toast("Konum alınamadı. Lütfen manuel seçim yapın veya izinleri kontrol edin.");
       });
     }
   }, [triggerLocate, map])
@@ -58,23 +67,23 @@ function MapController({ selectedEvent, triggerLocate, manualLocation, onLocatio
 }
 
 interface MapProps {
-  events: any[];
-  selectedEvent: any;
+  events: SelectableEvent[];
+  selectedEvent: SelectableEvent | null;
   triggerLocate: boolean;
   markerMode: 'title' | 'price' | 'category';
-  manualLocation: any;
-  onEventSelect: (event: any) => void;
-  onVenueClick?: (venueName: string, events: any[]) => void;
-  onLocationFound?: (latlng: L.LatLng) => void;
+  manualLocation: MapLocation | null;
+  onEventSelect: (event: SelectableEvent) => void;
+  onVenueClick?: (venueName: string, events: SelectableEvent[]) => void;
+  onLocationFound?: (latlng: LatLng) => void;
 }
 
-export default function Map({ events, selectedEvent, triggerLocate, markerMode, manualLocation, onEventSelect, onVenueClick }: MapProps) {
-  const [userPos, setUserPos] = useState<any>(null)
+export default function Map({ events, selectedEvent, triggerLocate, markerMode, manualLocation, onEventSelect, onVenueClick, onLocationFound }: MapProps) {
+  const [userPos, setUserPos] = useState<LatLng | null>(null)
   const [showPopup, setShowPopup] = useState<string | null>(null)
 
   // Group events by venue (roughly same location)
   const groupedEvents = useMemo(() => {
-    const groups: { [key: string]: any[] } = {}
+    const groups: { [key: string]: SelectableEvent[] } = {}
 
     events.forEach(event => {
       // Create a key based on venue_name or coordinates (rounded to ~100m)
@@ -104,7 +113,7 @@ export default function Map({ events, selectedEvent, triggerLocate, markerMode, 
         selectedEvent={selectedEvent}
         triggerLocate={triggerLocate}
         manualLocation={manualLocation}
-        onLocationFound={(pos: any) => setUserPos(pos)}
+        onLocationFound={(pos) => { setUserPos(pos); onLocationFound?.(pos) }}
       />
 
       {/* Kullanıcı Konumu (Mavi Nokta) */}
@@ -149,7 +158,7 @@ export default function Map({ events, selectedEvent, triggerLocate, markerMode, 
                   <>
                     <div className="font-bold text-brand mb-2 text-sm">{firstEvent.venue_name || 'Bu Mekanda'}</div>
                     <div className="space-y-1 max-h-32 overflow-y-auto">
-                      {venueEvents.slice(0, 5).map((ev: any) => (
+                      {venueEvents.slice(0, 5).map((ev) => (
                         <div
                           key={ev.id}
                           className="text-xs p-1.5 bg-gray-50 rounded cursor-pointer hover:bg-gray-100"

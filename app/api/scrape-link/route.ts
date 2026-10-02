@@ -1,19 +1,33 @@
 import { NextResponse } from 'next/server';
+import { isAdminRequest } from '@/lib/admin-session';
+
+// SSRF koruması: yalnızca https + bu domainler (hostname tam eşleşme)
+function matchHost(hostname: string, domain: string): boolean {
+    return hostname === domain || hostname.endsWith('.' + domain);
+}
 
 export async function POST(request: Request): Promise<Response> {
+    if (!(await isAdminRequest())) {
+        return NextResponse.json({ success: false, error: 'Yetkisiz' }, { status: 401 });
+    }
     try {
-        const { url } = await request.json();
+        const { url: rawUrl } = await request.json();
 
-        // Support both biletinial and bubilet
-        const isBiletinial = url && url.includes('biletinial.com');
-        const isBubilet = url && url.includes('bubilet.com.tr');
+        let parsed: URL | null = null;
+        try { parsed = new URL(String(rawUrl)); } catch { parsed = null; }
+        const isHttps = parsed?.protocol === 'https:' && !parsed.port;
+        const isBiletinial = !!parsed && isHttps && matchHost(parsed.hostname, 'biletinial.com');
+        const isBubilet = !!parsed && isHttps && matchHost(parsed.hostname, 'bubilet.com.tr');
+        const url = parsed?.toString() || '';
 
-        if (!url || (!isBiletinial && !isBubilet)) {
+        if (!parsed || (!isBiletinial && !isBubilet)) {
             return NextResponse.json({ success: false, error: 'Geçersiz URL. Biletinial veya Bubilet linkleri destekleniyor.' }, { status: 400 });
         }
 
         // Fetch the page HTML
         const response = await fetch(url, {
+            redirect: 'manual', // yönlendirmeyle başka hosta kaçmayı engelle
+            signal: AbortSignal.timeout(15000),
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -34,11 +48,11 @@ export async function POST(request: Request): Promise<Response> {
             return scrapeBiletinial(html, url);
         }
 
-    } catch (error: any) {
+    } catch (error) {
         console.error('Scrape link error:', error);
         return NextResponse.json({
             success: false,
-            error: error.message || 'Bir hata oluştu.'
+            error: (error as Error).message || 'Bir hata oluştu.'
         }, { status: 500 });
     }
 }
@@ -202,7 +216,7 @@ function scrapeBiletinial(html: string, url: string): Response {
     const duration = durationMatch ? durationMatch[1].trim() : '';
 
     // Extract rules - look for etkinlik kuralları section
-    let rules: string[] = [];
+    const rules: string[] = [];
     const rulesSection = html.match(/Etkinlik Kuralları[\s\S]*?<ul[^>]*>([\s\S]*?)<\/ul>/i);
     if (rulesSection) {
         const liMatches = rulesSection[1].matchAll(/<li[^>]*>([\s\S]*?)<\/li>/gi);
@@ -269,7 +283,7 @@ function scrapeBiletinial(html: string, url: string): Response {
 
         // Find venue in nearby HTML
         const venueMatch = nearbyHtml.match(/href="[^"]*\/mekan\/([^"]+)"[^>]*>([^<]+)</i);
-        let venue = venueMatch ? venueMatch[2].trim() : '';
+        const venue = venueMatch ? venueMatch[2].trim() : '';
 
         // Try to determine city from context or venue name
         let city = '';
