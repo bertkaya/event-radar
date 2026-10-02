@@ -6,6 +6,12 @@ import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import L from 'leaflet'
 import type { LatLng, MapLocation, SelectableEvent } from '@/lib/types'
+
+// Altlık harita. CARTO artık API anahtarı istiyor; varsayılan anahtarsız OpenStreetMap.
+// Başka servise (MapTiler, Stadia vb.) geçmek için Vercel'de NEXT_PUBLIC_MAP_TILE_URL ve
+// NEXT_PUBLIC_MAP_TILE_ATTRIBUTION tanımlamak yeterli.
+const TILE_URL = process.env.NEXT_PUBLIC_MAP_TILE_URL || 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
+const TILE_ATTRIBUTION = process.env.NEXT_PUBLIC_MAP_TILE_ATTRIBUTION || '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> katkıcıları'
 import { useEffect, useState, useMemo } from 'react'
 
 // Özel Pinler
@@ -105,8 +111,9 @@ export default function Map({ events, selectedEvent, triggerLocate, markerMode, 
   return (
     <MapContainer center={[39.9208, 32.8541]} zoom={12} style={{ height: '100%', width: '100%' }} zoomControl={false}>
       <TileLayer
-        url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-        attribution='&copy; OpenStreetMap &copy; CARTO'
+        url={TILE_URL}
+        attribution={TILE_ATTRIBUTION}
+        maxZoom={19}
       />
 
       <MapController
