@@ -41,3 +41,14 @@ export function formatPrice(price: string | undefined | null): string {
   }
   return formatted
 }
+
+/** "3 dk önce", "2 sa önce", "5 gün önce" */
+export function timeAgo(iso: string, now = Date.now()): string {
+  const diff = Math.max(0, now - new Date(iso).getTime())
+  const min = Math.round(diff / 60000)
+  if (min < 1) return 'az önce'
+  if (min < 60) return `${min} dk önce`
+  const h = Math.round(min / 60)
+  if (h < 24) return `${h} sa önce`
+  return `${Math.round(h / 24)} gün önce`
+}

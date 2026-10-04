@@ -82,6 +82,19 @@ export interface Event {
   source_url?: string;
   organizer_id?: number;
 
+  // Kaynak / tazelik (çok kaynaklı alım)
+  city?: string | null;
+  district?: string | null;
+  timezone?: string | null;
+  currency?: string | null;
+  max_price?: number | null;
+  organizer_name?: string | null;
+  event_kind?: 'ticketed' | 'free' | 'registration' | 'editorial' | 'official' | null;
+  status?: 'active' | 'postponed' | 'cancelled' | 'sold_out' | 'upcoming_sale' | 'past' | 'inactive' | null;
+  primary_source?: string | null;
+  registration_url?: string | null;
+  last_verified_at?: string | null;
+
   // Joins
   venues?: Venue;
   organizers?: Organizer;

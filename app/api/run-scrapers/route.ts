@@ -25,8 +25,8 @@ export async function POST(request: Request): Promise<Response> {
 
         return NextResponse.json({
             success: false,
-            message: 'Scraperlar serverless ortamda çalıştırılamaz. Lütfen terminalde çalıştırın: npx tsx scripts/run_scrapers.ts',
-            hint: 'GitHub Actions veya cron job kurulumu için .github/workflows/scrape_events.yml dosyasını kullanabilirsiniz.'
+            message: "Etkinlik alımı sunucuda değil, GitHub Actions'ta 3 saatte bir çalışır. Hemen çalıştırmak için GitHub → Actions → Etkinlik Alımı → Run workflow.",
+            hint: 'Durum ve geçmiş için admin → Kaynaklar sekmesine bakın.'
         });
 
     } catch (error) {
@@ -48,7 +48,7 @@ export async function GET() {
         .limit(10);
 
     return NextResponse.json({
-        scrapers: ['biletinial', 'passo', 'biletix'],
+        scrapers: ['bugece', 'izmir-bb', 'kultur-istanbul'],
         recentLogs: logs || []
     });
 }

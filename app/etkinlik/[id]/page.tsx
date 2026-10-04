@@ -7,6 +7,21 @@ import { getSupabasePublic } from '@/lib/supabase-server'
 import { SITE_URL, eventUrl } from '@/lib/site'
 import { formatPrice } from '@/lib/utils'
 import type { Event } from '@/lib/types'
+import SourceLine from '@/components/SourceLine'
+import ReportButton from '@/components/ReportButton'
+import { SOURCE_LABELS, SOURCE_TYPE_LABEL } from '@/lib/sources/catalog'
+import { timeAgo } from '@/lib/utils'
+
+interface SourceRow { source: string; source_type: 'ticketing' | 'editorial' | 'official'; url: string | null; ticket_url: string | null; price_min: number | null; availability: string | null; last_seen_at: string }
+
+const getSources = cache(async (eventId: number): Promise<SourceRow[]> => {
+  const supabase = getSupabasePublic()
+  if (!supabase) return []
+  const { data } = await supabase.from('event_sources').select('source, source_type, url, ticket_url, price_min, availability, last_seen_at').eq('event_id', eventId)
+  return (data as SourceRow[]) || []
+})
+
+const AVAILABILITY_LABEL: Record<string, string> = { sold_out: 'Tükendi', upcoming_sale: 'Yakında satışta', cancelled: 'İptal', postponed: 'Ertelendi' }
 
 export const revalidate = 300 // 5 dk ISR
 
@@ -70,7 +85,7 @@ export default async function EventPage({ params }: { params: Promise<{ id: stri
     || (event.lat && event.lng ? `https://www.google.com/maps/dir/?api=1&destination=${event.lat},${event.lng}` : null)
     || (event.address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(event.address)}` : null)
   const rules = (event.rules || '').split('\n').map(r => r.trim()).filter(Boolean)
-  const ticketSources = (event.ticket_sources || []).filter(s => s.url)
+  const sources = await getSources(event.id)
 
   // Google zengin sonuç (Event rich result)
   const jsonLd = {
@@ -163,16 +178,34 @@ export default async function EventPage({ params }: { params: Promise<{ id: stri
             </Link>
           </div>
 
-          {ticketSources.length > 1 && (
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <SourceLine event={event} />
+            <ReportButton eventId={event.id} />
+          </div>
+
+          {sources.length > 0 && (
             <section className="bg-white dark:bg-gray-800 p-4 rounded-2xl border border-gray-200 dark:border-gray-700">
-              <h2 className="font-bold mb-2 text-sm">Bilet satış noktaları</h2>
+              <h2 className="font-bold mb-1 text-sm">{sources.length > 1 ? 'Bu etkinliğin kaynakları' : 'Kaynak'}</h2>
+              <p className="text-[11px] text-gray-400 mb-3">Fiyatlar kaynakta görünen başlangıç fiyatıdır; seans ve bilet türü farklı olabilir. Satın alma kaynağın resmi sayfasında yapılır.</p>
               <ul className="space-y-2">
-                {ticketSources.map(s => (
-                  <li key={s.url} className="flex justify-between items-center text-sm">
-                    <span className="capitalize">{s.source}</span>
-                    <a href={s.url} target="_blank" rel="noopener noreferrer" className="font-bold text-brand hover:underline">{s.price ? formatPrice(s.price) : 'Siteye git'} →</a>
-                  </li>
-                ))}
+                {sources.map(s => {
+                  const label = SOURCE_LABELS[s.source]
+                  const href = s.ticket_url || s.url
+                  return (
+                    <li key={s.source} className="flex flex-wrap justify-between items-center gap-2 text-sm">
+                      <span>
+                        <strong>{label?.name || s.source}</strong>
+                        <span className="text-gray-400 text-xs"> · {label ? SOURCE_TYPE_LABEL[label.type] : s.source_type} · {timeAgo(s.last_seen_at)} görüldü</span>
+                        {s.availability && AVAILABILITY_LABEL[s.availability] && <span className="ml-2 text-xs font-bold text-red-600">{AVAILABILITY_LABEL[s.availability]}</span>}
+                      </span>
+                      {href && (
+                        <a href={href} target="_blank" rel="noopener noreferrer" className="font-bold text-brand hover:underline">
+                          {s.price_min ? `${s.price_min} TL'den` : s.source_type === 'official' ? 'Resmi sayfa' : 'Siteye git'} →
+                        </a>
+                      )}
+                    </li>
+                  )
+                })}
               </ul>
             </section>
           )}
@@ -194,7 +227,7 @@ export default async function EventPage({ params }: { params: Promise<{ id: stri
           )}
 
           <p className="text-[11px] text-gray-400 pt-6">
-            Etkinlik bilgileri bilet satış sitelerinden derlenmiştir; güncel bilgi için satış sayfasını kontrol edin. · <a href={SITE_URL} className="underline">18-23</a>
+            Etkinlik bilgileri yukarıdaki kaynaklardan otomatik derlenir; güncel bilgi için kaynağın resmi sayfasını kontrol edin. · <a href={SITE_URL} className="underline">18-23</a>
           </p>
         </div>
       </article>

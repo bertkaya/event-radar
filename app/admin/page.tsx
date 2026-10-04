@@ -4,6 +4,7 @@ import { toast } from '@/lib/toast'
 import { useState, useEffect, useRef } from 'react'
 import { adminDb as supabase } from '@/lib/admin-db'
 import AdminGate, { adminLogout } from '@/components/AdminGate'
+import SourcesPanel from '@/components/admin/SourcesPanel'
 import { Trash2, Edit, Upload, ImageIcon, MapPin, Calendar, Check, AlertTriangle, Ban, Music, Inbox, List, Phone, Mail, User, FileSpreadsheet, Download, Plus, Search, Info, Activity, X, ExternalLink, Clock, Copy, Link as LinkIcon } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import type { Venue, Organizer, Event, VenueApplication, ScraperLog, SheetRow, TicketDetail } from '@/lib/types'
@@ -50,7 +51,7 @@ export default function AdminPage() {
 }
 
 function Admin() {
-  const [activeTab, setActiveTab] = useState<'events' | 'applications' | 'health'>('events')
+  const [activeTab, setActiveTab] = useState<'events' | 'applications' | 'health' | 'sources'>('events')
   const [loading, setLoading] = useState(false)
   const [msg, setMsg] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -806,11 +807,14 @@ function Admin() {
               <button onClick={() => setActiveTab('events')} className={`flex items-center gap-2 px-6 py-2 rounded-md text-sm font-bold transition flex-1 justify-center whitespace-nowrap ${activeTab === 'events' ? 'bg-white dark:bg-gray-600 shadow-sm text-brand' : 'text-gray-500 hover:text-gray-700'}`}><List size={16} /> Etkinlikler</button>
               <button onClick={() => setActiveTab('applications')} className={`flex items-center gap-2 px-6 py-2 rounded-md text-sm font-bold transition flex-1 justify-center whitespace-nowrap ${activeTab === 'applications' ? 'bg-white dark:bg-gray-600 shadow-sm text-brand' : 'text-gray-500 hover:text-gray-700'}`}><Inbox size={16} /> Başvurular {applications.length > 0 && <span className="bg-red-500 text-white text-[10px] px-1.5 rounded-full">{applications.length}</span>}</button>
               <button onClick={() => setActiveTab('health')} className={`flex items-center gap-2 px-6 py-2 rounded-md text-sm font-bold transition flex-1 justify-center whitespace-nowrap ${activeTab === 'health' ? 'bg-white dark:bg-gray-600 shadow-sm text-brand' : 'text-gray-500 hover:text-gray-700'}`}><Activity size={16} /> Sistem Sağlığı</button>
+              <button onClick={() => setActiveTab('sources')} className={`flex items-center gap-2 px-6 py-2 rounded-md text-sm font-bold transition flex-1 justify-center whitespace-nowrap ${activeTab === 'sources' ? 'bg-white dark:bg-gray-600 shadow-sm text-brand' : 'text-gray-500 hover:text-gray-700'}`}><Inbox size={16} /> Kaynaklar</button>
               <button onClick={triggerAutoFetch} className="bg-purple-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-purple-700 whitespace-nowrap ml-2">🔄 Etkinlikleri Kontrol Et</button>
             </div>
           </div>
 
           {/* SYSTEM HEALTH TAB */}
+          {activeTab === 'sources' && <SourcesPanel />}
+
           {activeTab === 'health' && (
             <div className="space-y-6 animate-in fade-in">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
