@@ -1,30 +1,49 @@
-name: Scrape Events
+name: Etkinlik Alımı
 
 on:
   schedule:
-    # Run every 6 hours
-    - cron: '0 */6 * * *'
+    # 3 saatte bir (UTC). Kaynaklar admin → Kaynaklar sekmesinden açılıp kapatılabilir.
+    - cron: '17 */3 * * *'
   workflow_dispatch:
 
+# Aynı anda iki alım çalışmasın (veritabanında ayrıca kilit var)
+concurrency:
+  group: events-ingest
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: write # keepalive: zamanlanmış görevin 60 gün sonra kapanmasını önlemek için
+
 jobs:
-  scrape:
+  ingest:
     runs-on: ubuntu-latest
-    
+    timeout-minutes: 30
+
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-          
+
       - name: Install Dependencies
         run: npm ci
-        
-      - name: Run Scrapers
+        env:
+          # Yeni kaynaklar tarayıcı gerektirmiyor; Chrome indirmeyi atla
+          PUPPETEER_SKIP_DOWNLOAD: 'true'
+
+      - name: Etkinlikleri al
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          HEADLESS: "true"
-        run: npx tsx scripts/run_scrapers.ts
+        run: npx tsx scripts/ingest/run.ts
+
+      # GitHub, depoda 60 gün işlem olmazsa zamanlanmış görevleri kapatır. Her çalışmada yeniden etkinleştir.
+      - name: Keepalive
+        if: always() && github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/scrape_events.yml/enable" || true

@@ -13,6 +13,8 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import SkeletonCard from '@/components/Skeleton'
+import SourceLine from '@/components/SourceLine'
+import ReportButton from '@/components/ReportButton'
 import type { Event, SelectableEvent, MapLocation, AppNotification, Review, MaybeEvent } from '@/lib/types'
 import type { User as AuthUser } from '@supabase/supabase-js'
 import { fakeEvents } from '@/lib/data'
@@ -31,15 +33,30 @@ const MapWithNoSSR = dynamic(() => import('@/components/Map'), {
   loading: () => <div className="h-full w-full flex items-center justify-center bg-gray-100 dark:bg-gray-900 text-brand font-bold">Harita Yükleniyor...</div>
 })
 
-const PRESET_LOCATIONS = [
-  { name: 'Ankara (Tümü)', lat: 39.9208, lng: 32.8541, zoom: 12 },
-  { name: '• Çankaya / Tunalı', lat: 39.9032, lng: 32.8644, zoom: 14 },
-  { name: '• Bahçelievler', lat: 39.9215, lng: 32.8225, zoom: 15 },
-  { name: '• Kızılay', lat: 39.9208, lng: 32.8541, zoom: 15 },
-  { name: '• Ümitköy / Çayyolu', lat: 39.8914, lng: 32.7103, zoom: 13 },
-  { name: 'İstanbul', lat: 41.0082, lng: 28.9784, zoom: 11 },
-  { name: 'İzmir', lat: 38.4237, lng: 27.1428, zoom: 12 },
+// city: şehir filtresi (events.city ile eşleşir). null = tüm şehirler
+const PRESET_LOCATIONS: { name: string; lat: number; lng: number; zoom: number; city: string | null }[] = [
+  { name: 'Tüm Şehirler', lat: 39.4, lng: 31.0, zoom: 6, city: null },
+  { name: 'İstanbul', lat: 41.0082, lng: 28.9784, zoom: 11, city: 'İstanbul' },
+  { name: 'Ankara (Tümü)', lat: 39.9208, lng: 32.8541, zoom: 12, city: 'Ankara' },
+  { name: '• Çankaya / Tunalı', lat: 39.9032, lng: 32.8644, zoom: 14, city: 'Ankara' },
+  { name: '• Bahçelievler', lat: 39.9215, lng: 32.8225, zoom: 15, city: 'Ankara' },
+  { name: '• Kızılay', lat: 39.9208, lng: 32.8541, zoom: 15, city: 'Ankara' },
+  { name: '• Ümitköy / Çayyolu', lat: 39.8914, lng: 32.7103, zoom: 13, city: 'Ankara' },
+  { name: 'İzmir', lat: 38.4237, lng: 27.1428, zoom: 12, city: 'İzmir' },
 ]
+const DEFAULT_LOCATION = PRESET_LOCATIONS[0]
+const LOCATION_STORAGE_KEY = '1823-location'
+
+// Katılım şekli filtresi (events.event_kind)
+const KIND_FILTERS: { key: 'all' | 'free' | 'ticketed' | 'registration' | 'official'; label: string }[] = [
+  { key: 'all', label: 'Tümü' },
+  { key: 'free', label: 'Ücretsiz' },
+  { key: 'ticketed', label: 'Biletli' },
+  { key: 'registration', label: 'Kayıtlı' },
+  { key: 'official', label: 'Resmi kurum' },
+]
+
+const hasCoords = (e: { lat?: number | null; lng?: number | null }) => Number.isFinite(e.lat) && Number.isFinite(e.lng) && !!e.lat && !!e.lng
 
 // Standart Kategoriler (Admin ile uyumlu)
 const CATEGORIES = ['Müzik', 'Tiyatro', 'Stand-Up', 'Spor', 'Aile', 'Sanat', 'Eğitim', 'Festival', 'Sinema', 'Parti', 'Yeme-İçme']
@@ -98,7 +115,8 @@ export default function Home() {
   const [sortBy, setSortBy] = useState<'date-asc' | 'date-desc' | 'popular' | 'match'>('match')
   const [priceFilter, setPriceFilter] = useState<'all' | 'free'>('all')
   const [priceRange, setPriceRange] = useState<number[]>([0, 5000]) // [min, max]
-  const [cityFilter, setCityFilter] = useState<{ lat: number, lng: number } | null>(null) // City Filter (Center)
+  const [cityFilter, setCityFilter] = useState<{ lat: number, lng: number, city: string | null } | null>(null) // City Filter
+  const [kindFilter, setKindFilter] = useState<typeof KIND_FILTERS[number]['key']>('all')
 
   const [triggerLocate, setTriggerLocate] = useState(false)
   const [manualLocation, setManualLocation] = useState<MapLocation | null>(null)
@@ -106,7 +124,7 @@ export default function Home() {
   const [showVenueModal, setShowVenueModal] = useState(false)
   const [showVenueEventsModal, setShowVenueEventsModal] = useState<string | null>(null) // Venue Name
 
-  const [currentLocName, setCurrentLocName] = useState('İstanbul')
+  const [currentLocName, setCurrentLocName] = useState(DEFAULT_LOCATION.name)
   const [user, setUser] = useState<AuthUser | null>(null)
   const [copied, setCopied] = useState(false)
   const [venueForm, setVenueForm] = useState({ venue_name: '', contact_name: '', phone: '', email: '', message: '' })
@@ -180,7 +198,9 @@ export default function Home() {
       .from('events')
       .select('*, organizers(name, logo_url)')
       .eq('is_approved', true)
-      .gte('start_time', new Date().toISOString())
+      // Henüz başlamamış ya da hâlâ süren (sergi gibi) etkinlikler; kaynakta kaybolanlar (inactive) hariç
+      .or(`start_time.gte.${new Date().toISOString()},end_time.gte.${new Date().toISOString()}`)
+      .neq('status', 'inactive')
       .order('start_time', { ascending: true });
 
     if (eventsError) {
@@ -192,11 +212,12 @@ export default function Home() {
     // 1. Intelligent Deduplication across ticket vendors (Biletix, Passo, Bubilet, Biletinial)
     const deduplicated = deduplicateEvents(activeList);
 
-    const jitteredEvents = deduplicated.map(ev => ({
+    // Aynı mekândaki işaretler üst üste binmesin diye çok küçük kaydırma; koordinatı olmayanlar olduğu gibi kalır
+    const jitteredEvents = deduplicated.map(ev => hasCoords(ev) ? ({
       ...ev,
       lat: ev.lat + (Math.random() - 0.5) * 0.0002,
       lng: ev.lng + (Math.random() - 0.5) * 0.0002
-    }))
+    }) : ev)
     setAllEvents(jitteredEvents)
     setLoading(false)
 
@@ -303,11 +324,19 @@ export default function Home() {
       return true;
     });
 
-    // 6. City Filter (50km radius)
+    // 5b. Katılım şekli
+    if (kindFilter !== 'all') {
+      filtered = filtered.filter(e => kindFilter === 'free'
+        ? e.event_kind === 'free' || e.min_price === 0 || !!e.price?.toLowerCase().includes('ücretsiz')
+        : e.event_kind === kindFilter)
+    }
+
+    // 6. City Filter: şehir alanı varsa onunla, yoksa (eski kayıtlar) merkezden 50 km
     if (cityFilter) {
       filtered = filtered.filter(e => {
-        const dist = getDistanceFromLatLonInKm(cityFilter.lat, cityFilter.lng, e.lat, e.lng)
-        return dist < 50
+        if (e.city && cityFilter.city) return e.city === cityFilter.city
+        if (!hasCoords(e)) return false
+        return getDistanceFromLatLonInKm(cityFilter.lat, cityFilter.lng, e.lat, e.lng) < 50
       })
     }
 
@@ -352,8 +381,7 @@ export default function Home() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { fetchData() }, [])
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { applyFilters() }, [activeCategory, activeMood, timeFilter, discoveryMode, searchQuery, sortBy, priceFilter, allEvents, favCounts, cityFilter, priceRange, userCoords, userPrefs])
-
+  useEffect(() => { applyFilters() }, [activeCategory, activeMood, timeFilter, discoveryMode, searchQuery, sortBy, priceFilter, kindFilter, allEvents, favCounts, cityFilter, priceRange, userCoords, userPrefs])
   // AI Night Planner Trigger
   const handleOpenNightPlanner = () => {
     const plans = generateNightPlans(allEvents, {
@@ -394,6 +422,7 @@ export default function Home() {
 
   // Recovery Action Handlers for Empty State
   const resetAllFilters = () => {
+    setKindFilter('all')
     setDiscoveryMode('all')
     setActiveCategory('Tümü')
     setActiveMood('Tümü')
@@ -581,21 +610,23 @@ END:VCALENDAR`;
     setManualLocation(loc);
     setCurrentLocName(loc.name.replace('• ', ''));
     setShowLocModal(false);
+    try { localStorage.setItem(LOCATION_STORAGE_KEY, loc.name) } catch { /* depolama kapalı olabilir */ }
 
-    // Eğer zoom seviyesi küçükse (Şehir geneli) o şehri filtre olarak ayarla
-    if (loc.zoom <= 12) {
-      setCityFilter({ lat: loc.lat, lng: loc.lng })
-    } else {
-      // Bir semt seçildiyse de o şehrin filtresini koruyabiliriz veya kaldırabiliriz. 
-      // Şimdilik Ankara semtleri için Ankara merkezini baz alalım.
-      if (loc.name.includes('Ankara') || loc.name.includes('Çankaya') || loc.name.includes('Bahçelievler') || loc.name.includes('Kızılay') || loc.name.includes('Ümitköy')) {
-        // Ankara Coordinates
-        setCityFilter({ lat: 39.9208, lng: 32.8541 })
-      } else {
-        setCityFilter(null)
-      }
-    }
+    // Semt seçilse de filtre şehrin tamamıdır; harita semte yakınlaşır
+    const cityPreset = PRESET_LOCATIONS.find(l => l.city === loc.city && l.zoom <= 12) || loc
+    setCityFilter(loc.city ? { lat: cityPreset.lat, lng: cityPreset.lng, city: loc.city } : null)
   }
+
+  // Son seçilen konumu hatırla (yalnızca bu tarayıcıda)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(LOCATION_STORAGE_KEY)
+      const loc = PRESET_LOCATIONS.find(l => l.name === saved)
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- kayıtlı tercihi mount'ta uygula
+      if (loc && loc !== DEFAULT_LOCATION) handleSelectLocation(loc)
+    } catch { /* depolama kapalı olabilir */ }
+  }, [])
 
   // DATE FORMATTERS
   const formatEuroDateTime = (dateStr: string) => { const d = new Date(dateStr); return `${d.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' })} ${d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}` }
@@ -920,6 +951,10 @@ END:VCALENDAR`;
                 </div>
                 <div className="text-sm text-gray-500 flex items-center gap-2">
                   <Calendar size={14} /> {formatDateRange(selectedEvent.start_time, selectedEvent.end_time)}
+                </div>
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                  <SourceLine event={selectedEvent} />
+                  <ReportButton key={selectedEvent.id} eventId={selectedEvent.id} />
                 </div>
               </div>
 
@@ -1302,6 +1337,20 @@ END:VCALENDAR`;
               ))}
             </div>
 
+            {/* KATILIM ŞEKLİ */}
+            <div className="flex gap-1.5 overflow-x-auto no-scrollbar" role="group" aria-label="Katılım şekli">
+              {KIND_FILTERS.map(k => (
+                <button
+                  key={k.key}
+                  onClick={() => setKindFilter(k.key)}
+                  aria-pressed={kindFilter === k.key}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold whitespace-nowrap transition-all duration-200 border ${kindFilter === k.key ? 'bg-brand text-white border-transparent' : 'bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700'}`}
+                >
+                  {k.label}
+                </button>
+              ))}
+            </div>
+
             {/* PRICE SLIDER */}
             <div className="pt-1 px-1 flex items-center justify-between gap-3 text-xs">
               <span className="text-[10px] uppercase font-bold text-gray-400 whitespace-nowrap">Bütçe: 0 - {priceRange[1] >= 5000 ? '5000+' : priceRange[1]} TL</span>
@@ -1423,7 +1472,10 @@ END:VCALENDAR`;
                     </div>
 
                     <div className="flex justify-between items-end pt-1 border-t border-gray-100 dark:border-gray-800">
-                      <div className="text-[11px] text-gray-400 font-medium">{formatDateRange(event.start_time, event.end_time)}</div>
+                      <div className="min-w-0">
+                        <div className="text-[11px] text-gray-400 font-medium">{formatDateRange(event.start_time, event.end_time)}</div>
+                        <SourceLine event={event} compact />
+                      </div>
                       <div className="flex items-center gap-1.5">
                         {event.ticket_sources && event.ticket_sources.length > 1 && (
                           <span className="text-[10px] bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 px-1.5 py-0.5 rounded font-bold">

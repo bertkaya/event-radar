@@ -74,5 +74,17 @@ async function handle(request: Request) {
     return NextResponse.json({ ok: true })
   }
 
+  if (body.type === 'event_report') {
+    const eventId = Number(body.event_id)
+    const reason = str(body.reason, 30)
+    if (!Number.isInteger(eventId) || eventId <= 0) return NextResponse.json({ error: 'Etkinlik bulunamadı.' }, { status: 400 })
+    if (!['wrong_date', 'wrong_venue', 'cancelled', 'wrong_price', 'other'].includes(reason)) {
+      return NextResponse.json({ error: 'Lütfen bir neden seçin.' }, { status: 400 })
+    }
+    const { error } = await db().from('event_reports').insert({ event_id: eventId, reason, note: str(body.note, 500) || null })
+    if (error) return NextResponse.json({ error: 'Kaydedilemedi, lütfen tekrar deneyin.' }, { status: 500 })
+    return NextResponse.json({ ok: true })
+  }
+
   return NextResponse.json({ error: 'Bilinmeyen form' }, { status: 400 })
 }

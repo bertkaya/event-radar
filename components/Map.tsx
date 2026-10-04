@@ -45,7 +45,7 @@ function MapController({ selectedEvent, triggerLocate, manualLocation, onLocatio
 
   // 1. Etkinlik Seçilince Uç
   useEffect(() => {
-    if (selectedEvent) {
+    if (selectedEvent && Number.isFinite(selectedEvent.lat) && selectedEvent.lat) {
       map.flyTo([selectedEvent.lat, selectedEvent.lng], 15, { animate: true, duration: 1.2 })
     }
   }, [selectedEvent, map])
@@ -91,7 +91,8 @@ export default function Map({ events, selectedEvent, triggerLocate, markerMode, 
   const groupedEvents = useMemo(() => {
     const groups: { [key: string]: SelectableEvent[] } = {}
 
-    events.forEach(event => {
+    // Koordinatı olmayan etkinlikler listede görünür, haritaya konmaz
+    events.filter(e => Number.isFinite(e.lat) && Number.isFinite(e.lng) && e.lat && e.lng).forEach(event => {
       // Create a key based on venue_name or coordinates (rounded to ~100m)
       const key = event.venue_name || `${Math.round(event.lat * 100) / 100},${Math.round(event.lng * 100) / 100}`
       if (!groups[key]) {
@@ -109,7 +110,7 @@ export default function Map({ events, selectedEvent, triggerLocate, markerMode, 
   }, [events])
 
   return (
-    <MapContainer center={[39.9208, 32.8541]} zoom={12} style={{ height: '100%', width: '100%' }} zoomControl={false}>
+    <MapContainer center={[39.4, 31.0]} zoom={6} style={{ height: '100%', width: '100%' }} zoomControl={false}>
       <TileLayer
         url={TILE_URL}
         attribution={TILE_ATTRIBUTION}
