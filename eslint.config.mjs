@@ -13,6 +13,17 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
   ]),
+  // Kazıyıcı/tek seferlik betikler tipsiz üçüncü taraf HTML/JSON ile çalışır: `any` ve require'a izin ver.
+  {
+    files: ["scripts/**/*.ts"],
+    rules: { "@typescript-eslint/no-explicit-any": "off", "@typescript-eslint/no-require-imports": "off" },
+  },
+  // React Compiler kuralları: bu sayfalarda fonksiyonlar efektten sonra tanımlı (çalışma zamanında sorunsuz);
+  // hata değil uyarı olarak izlenir, refactor ayrı iş.
+  {
+    files: ["app/**/*.tsx", "components/**/*.tsx"],
+    rules: { "react-hooks/immutability": "warn", "react-hooks/set-state-in-effect": "warn" },
+  },
 ]);
 
 export default eslintConfig;

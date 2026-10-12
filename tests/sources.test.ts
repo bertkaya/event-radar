@@ -135,3 +135,27 @@ test('katalog: entegre kaynakların hepsinin bir adaptörü var', async () => {
   const integrated = SOURCE_CATALOG.filter(s => s.decision === 'integrated').map(s => s.id).sort()
   assert.deepEqual(ADAPTERS.map(a => a.id).sort(), integrated)
 })
+
+import { parseNaturalLanguageQuery } from '../lib/nlp_filter'
+
+test('doğal dil araması: placeholder örneği artık metin aramasına takılmaz', () => {
+  const f = parseNaturalLanguageQuery("Kadıköy'de bu akşam 400 TL altı konser")
+  assert.equal(f.city, 'İstanbul')
+  assert.equal(f.timeFilter, 'today')
+  assert.equal(f.maxBudget, 400)
+  assert.equal(f.category, 'Müzik')
+  assert.equal(f.searchQuery, '')
+})
+
+test('doğal dil araması: gerçek özel adlar metin aramasında kalır', () => {
+  const f = parseNaturalLanguageQuery('yarın Mor ve Ötesi konseri ücretsiz')
+  assert.equal(f.timeFilter, 'tomorrow')
+  assert.equal(f.freeOnly, true)
+  assert.match(f.searchQuery ?? '', /mor ve ötesi/)
+})
+
+test('doğal dil araması: "0 tl" ücretsiz sayılır ama "400 tl" sayılmaz', () => {
+  assert.equal(parseNaturalLanguageQuery('0 tl konser').freeOnly, true)
+  assert.equal(parseNaturalLanguageQuery('400 tl altı konser').freeOnly, undefined)
+})
+

@@ -2,7 +2,7 @@
 'use client'
 
 import { toast } from '@/lib/toast'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import dynamic from 'next/dynamic'
 import { supabase } from '@/lib/supabase'
 import { 
@@ -85,6 +85,8 @@ export default function Home() {
     'all' | 'tonight' | 'afterwork' | 'tomorrow' | 'weekend' | 'nearme' | 'date' | 'friends' | 'solo' | 'family' | 'free'
   >('all')
   const [searchQuery, setSearchQuery] = useState('')
+  const [showFilters, setShowFilters] = useState(false) // mobilde ayrıntılı filtreler çekmecede
+  const autoNearDone = useRef(false)
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null)
 
   // AI Night Planner State
@@ -405,8 +407,14 @@ export default function Home() {
 
   // NLP Search Handler
   const handleNlpSearch = (rawPrompt: string) => {
-    setSearchQuery(rawPrompt)
     const parsed = parseNaturalLanguageQuery(rawPrompt)
+    // Ham cümle değil, filtreye dönüşmeyen kalan sözcükler metin araması olur; yeni cümle eski filtreleri de sıfırlar
+    setSearchQuery(parsed.searchQuery ?? '')
+    setActiveCategory(parsed.category ? (parsed.category === 'Workshop' ? 'Eğitim' : parsed.category) : 'Tümü')
+    setActiveMood('Tümü')
+    setPriceFilter('all')
+    setPriceRange([0, 5000])
+    setDiscoveryMode('all')
     if (parsed.city) {
       const matchedLoc = PRESET_LOCATIONS.find(l => l.name.toLowerCase().includes(parsed.city!.toLowerCase()))
       if (matchedLoc) handleSelectLocation(matchedLoc)
@@ -627,6 +635,11 @@ END:VCALENDAR`;
       if (loc && loc !== DEFAULT_LOCATION) handleSelectLocation(loc)
     } catch { /* depolama kapalı olabilir */ }
   }, [])
+
+  // Konum izni yalnızca kullanıcı 'Yakınımda'ya basınca istenir (sayfa açılışında sormak ürkütücü). İzin gelince mod kendiliğinden 'Yakınımda' olur.
+  useEffect(() => {
+    if (userCoords && !autoNearDone.current && discoveryMode === 'all') { autoNearDone.current = true; setDiscoveryMode('nearme') }
+  }, [userCoords, discoveryMode])
 
   // DATE FORMATTERS
   const formatEuroDateTime = (dateStr: string) => { const d = new Date(dateStr); return `${d.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' })} ${d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}` }
@@ -1248,6 +1261,7 @@ END:VCALENDAR`;
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && searchQuery.trim()) handleNlpSearch(searchQuery) }} // cümleyi filtrelere çevir
                 placeholder="Örn: Kadıköy'de bu akşam, 400 TL altı konser, date planı..."
                 className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl pl-9 pr-8 py-2 text-xs text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand"
               />
@@ -1258,6 +1272,32 @@ END:VCALENDAR`;
               )}
             </div>
 
+            {/* Mobil hızlı seçimler: sadece zaman; gerisi "Filtreler" çekmecesinde */}
+            <div className="flex items-center gap-1.5 md:hidden">
+              {[
+                { key: 'tonight', label: 'Bu Akşam 🔥' },
+                { key: 'tomorrow', label: 'Yarın' },
+                { key: 'weekend', label: 'Hafta Sonu' },
+              ].map(mode => (
+                <button
+                  key={mode.key}
+                  onClick={() => setDiscoveryMode(discoveryMode === mode.key ? 'all' : (mode.key as typeof discoveryMode))}
+                  aria-pressed={discoveryMode === mode.key}
+                  className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap border transition ${discoveryMode === mode.key ? 'bg-brand text-white border-brand' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700'}`}
+                >
+                  {mode.label}
+                </button>
+              ))}
+              <button
+                onClick={() => setShowFilters(v => !v)}
+                aria-expanded={showFilters}
+                className="ml-auto px-3 py-1.5 rounded-full text-xs font-bold border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 bg-gray-50 dark:bg-gray-800"
+              >
+                {showFilters ? 'Filtreleri gizle ▲' : 'Filtreler ▼'}
+              </button>
+            </div>
+
+            <div className={`${showFilters ? 'space-y-3' : 'hidden'} md:block md:space-y-3`}>
             {/* Suggested Search Prompts Chips */}
             <div className="flex gap-1.5 overflow-x-auto no-scrollbar pt-0.5">
               {[
@@ -1363,6 +1403,7 @@ END:VCALENDAR`;
                 onChange={(e) => setPriceRange([0, parseInt(e.target.value)])} 
                 className="w-full accent-brand h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700" 
               />
+            </div>
             </div>
           </div>
 

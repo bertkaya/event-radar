@@ -37,7 +37,7 @@ export function parseNaturalLanguageQuery(query: string): StructuredFilters {
   }
 
   // 3. Detect Budget / Free
-  if (q.includes('ücretsiz') || q.includes('bedava') || q.includes('parasız') || q.includes('0 tl')) {
+  if (q.includes('ücretsiz') || q.includes('bedava') || q.includes('parasız') || /(^|\s)0\s*(tl|lira|₺)/.test(q)) {
     filters.freeOnly = true;
     filters.maxBudget = 0;
   } else {
@@ -76,8 +76,30 @@ export function parseNaturalLanguageQuery(query: string): StructuredFilters {
     filters.category = 'Workshop';
   }
 
-  // Leftover keywords as text search
-  filters.searchQuery = q.replace(/(istanbul|ankara|izmir|kadıköy|beşiktaş|tunalı|bu akşam|yarın|hafta sonu|ücretsiz|tl|lira)/g, '').trim();
+  // Artakalan anahtar kelimeler metin araması olur. Yalnızca gerçek ad/yer kelimeleri kalmalı:
+  // eş-ek ('de), sayı/para, kalıp ifadeler ve zaten filtreye dönüşmüş sözcükler çıkarılır; aksi halde
+  // "Kadıköy'de bu akşam 400 TL altı konser" gibi doğal bir cümle hiç sonuç döndürmez.
+  const CONSUMED = new Set([
+    'istanbul', 'ankara', 'izmir', 'kadıköy', 'beşiktaş', 'beyoğlu', 'şişli', 'moda', 'üsküdar', 'çankaya', 'tunalı', 'kızılay',
+    'bahçelievler', 'alsancak', 'konak', 'karşıyaka', 'bornova', 'bostanlı',
+    'bu', 'akşam', 'gece', 'bugün', 'yarın', 'hafta', 'sonu', 'cumartesi', 'pazar',
+    'ücretsiz', 'bedava', 'parasız', 'tl', 'lira', '₺', 'altı', 'altında', 'üstü', 'üzeri', 'kadar', 'max',
+    'bir', 'için', 'ile', 'olan', 'bana', 'bul', 'öner', 'var', 'mı', 'mi', 'etkinlik', 'etkinlikler', 'ara', 'istiyorum',
+  ]);
+  if (filters.category) {
+    for (const w of ['konser', 'müzik', 'caz', 'jazz', 'rock', 'canlı', 'tiyatro', 'oyun', 'müzikal', 'stand-up', 'stand', 'up',
+      'komedi', 'kahkaha', 'sergi', 'müze', 'galeri', 'sinema', 'film', 'atölye', 'workshop']) CONSUMED.add(w);
+  }
+  if (filters.mood) {
+    for (const w of ['date', 'romantik', 'sevgili', 'baş', 'başa', 'kopmalık', 'parti', 'enerjik', 'coşkulu', 'chill', 'sakin', 'sanat',
+      'kafa', 'dinleme', 'aile', 'çocuk', 'ailece', 'öğren', 'geliştir']) CONSUMED.add(w);
+  }
+  filters.searchQuery = q
+    .replace(/['’][a-zçğıöşü]{1,3}(?=\s|$)/g, '')        // Kadıköy'de → Kadıköy
+    .split(/[\s,.;:!?]+/)
+    .filter((w) => w && !/^\d+(tl|₺)?$/.test(w) && !CONSUMED.has(w) && ![...CONSUMED].some((c) => c.length >= 5 && w.startsWith(c) && w.length <= c.length + 3)) // konseri/konserler gibi çekimler
+    .join(' ')
+    .trim();
 
   return filters;
 }

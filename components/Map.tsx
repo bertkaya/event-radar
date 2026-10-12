@@ -46,14 +46,18 @@ function MapController({ selectedEvent, triggerLocate, manualLocation, onLocatio
   // 1. Etkinlik Seçilince Uç
   useEffect(() => {
     if (selectedEvent && Number.isFinite(selectedEvent.lat) && selectedEvent.lat) {
-      map.flyTo([selectedEvent.lat, selectedEvent.lng], 15, { animate: true, duration: 1.2 })
+      if (map.getSize().x > 0) map.flyTo([selectedEvent.lat, selectedEvent.lng], 15, { animate: true, duration: 1.2 })
+      else map.setView([selectedEvent.lat, selectedEvent.lng], 15, { animate: false })
     }
   }, [selectedEvent, map])
 
   // 2. Manuel Konum Seçilince Uç
   useEffect(() => {
     if (manualLocation) {
-      map.flyTo([manualLocation.lat, manualLocation.lng], manualLocation.zoom, { animate: true, duration: 1.5 })
+      // Harita gizliyken (mobilde liste görünümü) boyut 0×0 olur ve flyTo "Invalid LatLng (NaN, NaN)" ile uygulamayı çökertir
+      const { x, y } = map.getSize()
+      if (x > 0 && y > 0) map.flyTo([manualLocation.lat, manualLocation.lng], manualLocation.zoom, { animate: true, duration: 1.5 })
+      else map.setView([manualLocation.lat, manualLocation.lng], manualLocation.zoom, { animate: false })
     }
   }, [manualLocation, map])
 
@@ -61,7 +65,7 @@ function MapController({ selectedEvent, triggerLocate, manualLocation, onLocatio
   useEffect(() => {
     if (triggerLocate) {
       map.locate().on("locationfound", function (e) {
-        map.flyTo(e.latlng, 14, { animate: true });
+        if (map.getSize().x > 0) map.flyTo(e.latlng, 14, { animate: true }); else map.setView(e.latlng, 14, { animate: false });
         onLocationFound(e.latlng) // Ana sayfaya "buldum" de
       }).on("locationerror", function (e) {
         toast("Konum alınamadı. Lütfen manuel seçim yapın veya izinleri kontrol edin.");
