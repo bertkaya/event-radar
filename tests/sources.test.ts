@@ -135,3 +135,26 @@ test('katalog: entegre kaynakların hepsinin bir adaptörü var', async () => {
   const integrated = SOURCE_CATALOG.filter(s => s.decision === 'integrated').map(s => s.id).sort()
   assert.deepEqual(ADAPTERS.map(a => a.id).sort(), integrated)
 })
+
+import { readFileSync } from 'node:fs'
+import { parseListUrls, parseDetailEvents, mapBiletinialEvents } from '../scripts/ingest/adapters/biletinial'
+
+test('Biletinial: liste sayfasından etkinlik adresleri okunur', () => {
+  const urls = parseListUrls(readFileSync('tests/fixtures/biletinial_list.html', 'utf8'))
+  assert.ok(urls.length >= 10)
+  assert.ok(urls.every(u => u.startsWith('https://biletinial.com/')))
+})
+
+test('Biletinial: JSON-LD etkinlik normalize edilir, şehir dışı ve geçmiş seanslar elenir', () => {
+  const evs = parseDetailEvents(readFileSync('tests/fixtures/biletinial_detail.html', 'utf8'))
+  assert.ok(evs.length >= 1)
+  const mapped = mapBiletinialEvents(evs, 'Müzik', Date.parse('2026-10-01T00:00:00Z'))
+  assert.ok(mapped.length >= 1)
+  const m = mapped[0]
+  assert.equal(m.city, 'Ankara')
+  assert.equal(m.eventKind, 'ticketed')
+  assert.ok(m.priceMin && m.priceMin > 0)
+  assert.ok(m.lat && m.lng)
+  // her şey geçmişte kalınca hiçbir kayıt alınmaz
+  assert.equal(mapBiletinialEvents(evs, 'Müzik', Date.parse('2030-01-01T00:00:00Z')).length, 0)
+})
