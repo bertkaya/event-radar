@@ -158,3 +158,15 @@ test('Biletinial: JSON-LD etkinlik normalize edilir, şehir dışı ve geçmiş 
   // her şey geçmişte kalınca hiçbir kayıt alınmaz
   assert.equal(mapBiletinialEvents(evs, 'Müzik', Date.parse('2030-01-01T00:00:00Z')).length, 0)
 })
+
+test('Biletinial: kesirli fiyat tam liraya yuvarlanır (price_min INTEGER; canlıda 28 kayıt/çalışma bu yüzden reddediliyordu)', () => {
+  const evs = parseDetailEvents(readFileSync('tests/fixtures/biletinial_detail.html', 'utf8'))
+  const base = evs[0] as unknown as { offers: unknown }
+  const offer = Array.isArray(base.offers) ? base.offers[0] : base.offers
+  for (const [raw, want] of [['1872.5', 1873], ['1444.5', 1445], [1930.0, 1930], ['0.4', 1]] as const) {
+    const ev = { ...evs[0], offers: { ...(offer as object), price: raw } } as never
+    const [m] = mapBiletinialEvents([ev], 'Müzik', Date.parse('2026-10-01T00:00:00Z'))
+    assert.equal(m.priceMin, want, `fiyat ${raw}`)
+    assert.ok(Number.isInteger(m.priceMin))
+  }
+})
