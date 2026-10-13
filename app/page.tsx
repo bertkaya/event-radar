@@ -24,51 +24,14 @@ import { rankEvents, ScoredEvent } from '@/lib/recommendation'
 import { generateNightPlans, NightPlan } from '@/lib/night_planner'
 import { parseNaturalLanguageQuery } from '@/lib/nlp_filter'
 import { eventUrl } from '@/lib/site'
+import { DEMO_MODE, PRESET_LOCATIONS, DEFAULT_LOCATION, LOCATION_STORAGE_KEY, KIND_FILTERS, hasCoords, CATEGORIES, MOODS, formatDateRange } from '@/lib/home'
 
-// Demo verisi yalnızca geliştirmede ya da açıkça istendiğinde gösterilir
-const DEMO_MODE = process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_DEMO_MODE === 'true'
 
 const MapWithNoSSR = dynamic(() => import('@/components/Map'), {
   ssr: false,
   loading: () => <div className="h-full w-full flex items-center justify-center bg-gray-100 dark:bg-gray-900 text-brand font-bold">Harita Yükleniyor...</div>
 })
 
-// city: şehir filtresi (events.city ile eşleşir). null = tüm şehirler
-const PRESET_LOCATIONS: { name: string; lat: number; lng: number; zoom: number; city: string | null }[] = [
-  { name: 'Tüm Şehirler', lat: 39.4, lng: 31.0, zoom: 6, city: null },
-  { name: 'İstanbul', lat: 41.0082, lng: 28.9784, zoom: 11, city: 'İstanbul' },
-  { name: 'Ankara (Tümü)', lat: 39.9208, lng: 32.8541, zoom: 12, city: 'Ankara' },
-  { name: '• Çankaya / Tunalı', lat: 39.9032, lng: 32.8644, zoom: 14, city: 'Ankara' },
-  { name: '• Bahçelievler', lat: 39.9215, lng: 32.8225, zoom: 15, city: 'Ankara' },
-  { name: '• Kızılay', lat: 39.9208, lng: 32.8541, zoom: 15, city: 'Ankara' },
-  { name: '• Ümitköy / Çayyolu', lat: 39.8914, lng: 32.7103, zoom: 13, city: 'Ankara' },
-  { name: 'İzmir', lat: 38.4237, lng: 27.1428, zoom: 12, city: 'İzmir' },
-]
-const DEFAULT_LOCATION = PRESET_LOCATIONS[0]
-const LOCATION_STORAGE_KEY = '1823-location'
-
-// Katılım şekli filtresi (events.event_kind)
-const KIND_FILTERS: { key: 'all' | 'free' | 'ticketed' | 'registration' | 'official'; label: string }[] = [
-  { key: 'all', label: 'Tümü' },
-  { key: 'free', label: 'Ücretsiz' },
-  { key: 'ticketed', label: 'Biletli' },
-  { key: 'registration', label: 'Kayıtlı' },
-  { key: 'official', label: 'Resmi kurum' },
-]
-
-const hasCoords = (e: { lat?: number | null; lng?: number | null }) => Number.isFinite(e.lat) && Number.isFinite(e.lng) && !!e.lat && !!e.lng
-
-// Standart Kategoriler (Admin ile uyumlu)
-const CATEGORIES = ['Müzik', 'Tiyatro', 'Stand-Up', 'Spor', 'Aile', 'Sanat', 'Eğitim', 'Festival', 'Sinema', 'Parti', 'Yeme-İçme']
-
-// MOOD MANTIĞI (Hangi mod hangi kategorileri kapsar?)
-const MOODS: { [key: string]: string[] } = {
-  'Kopmalık 🎸': ['Müzik', 'Spor'],
-  'Chill & Sanat 🎨': ['Tiyatro', 'Sanat', 'Sinema'],
-  'Date Night 🍷': ['Yeme-İçme', 'Müzik', 'Tiyatro'],
-  'Ailece 👨‍👩‍👧‍👦': ['Çocuk', 'Workshop', 'Sinema'],
-  'Kendini Geliştir 🧠': ['Workshop', 'Sanat']
-}
 
 
 export default function Home() {
@@ -641,24 +604,6 @@ END:VCALENDAR`;
     if (userCoords && !autoNearDone.current && discoveryMode === 'all') { autoNearDone.current = true; setDiscoveryMode('nearme') }
   }, [userCoords, discoveryMode])
 
-  // DATE FORMATTERS
-  const formatEuroDateTime = (dateStr: string) => { const d = new Date(dateStr); return `${d.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' })} ${d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}` }
-
-  const formatDateRange = (start: string, end?: string) => {
-    const s = new Date(start);
-    if (!end) return formatEuroDateTime(start);
-    const e = new Date(end);
-    if (s.toDateString() === e.toDateString()) {
-      return `${s.toLocaleDateString('tr-TR', { day: 'numeric', month: 'long' })} ${s.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} - ${e.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}`
-    }
-    return `${s.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' })} - ${e.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' })} (${s.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })})`
-  }
-
-  const formatHumanDate = (dateStr: string) => {
-    const date = new Date(dateStr); const today = new Date(); const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1)
-    if (date.toDateString() === today.toDateString()) return 'Bugün'; if (date.toDateString() === tomorrow.toDateString()) return 'Yarın'
-    return date.toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', weekday: 'long' })
-  }
 
   return (
     <div className="flex flex-col h-screen w-full bg-white dark:bg-gray-900 text-black dark:text-gray-100 font-sans overflow-hidden transition-colors">
