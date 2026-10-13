@@ -97,7 +97,8 @@ export function mapBiletinialEvents(events: LdEvent[], listCategory: string | un
       lat: lat && lng && Math.abs(lat) > 1 && Math.abs(lng) > 1 ? lat : undefined,
       lng: lat && lng && Math.abs(lat) > 1 && Math.abs(lng) > 1 ? lng : undefined,
       organizerName: e.organizer?.name,
-      priceMin: price && price > 0 ? price : undefined,
+      // veritabanında price_min INTEGER: kesirli fiyat ("1872.5") kaydı reddettirir, tam liraya yuvarlanır
+      priceMin: price && price > 0 ? Math.max(1, Math.round(price)) : undefined,
       currency: offer?.priceCurrency || (price ? 'TRY' : undefined),
       eventKind: price === 0 ? 'free' : 'ticketed',
       status,
