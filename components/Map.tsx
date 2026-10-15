@@ -6,13 +6,14 @@ import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import L from 'leaflet'
 import type { LatLng, MapLocation, SelectableEvent } from '@/lib/types'
+import { useCallback, useEffect, useState, useMemo } from 'react'
+import VectorBasemap from '@/components/VectorBasemap'
+import { chooseBasemap, hasWebGL } from '@/lib/map_style'
 
-// Altlık harita. CARTO artık API anahtarı istiyor; varsayılan anahtarsız OpenStreetMap.
-// Başka servise (MapTiler, Stadia vb.) geçmek için Vercel'de NEXT_PUBLIC_MAP_TILE_URL ve
-// NEXT_PUBLIC_MAP_TILE_ATTRIBUTION tanımlamak yeterli.
-const TILE_URL = process.env.NEXT_PUBLIC_MAP_TILE_URL || 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
-const TILE_ATTRIBUTION = process.env.NEXT_PUBLIC_MAP_TILE_ATTRIBUTION || '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> katkıcıları'
-import { useEffect, useState, useMemo } from 'react'
+// Altlık harita: varsayılan OpenFreeMap (vektör, anahtarsız, ücretsiz) + MapLibre GL.
+// Geri dönüşler (WebGL yok, stil açılmıyor, özel raster) lib/map_style.ts içinde.
+// NEXT_PUBLIC_MAP_TILE_URL (+ NEXT_PUBLIC_MAP_TILE_ATTRIBUTION) tanımlanırsa o raster katman kullanılır;
+// NEXT_PUBLIC_MAP_STYLE_URL vektör stilini değiştirir.
 
 // Özel Pinler
 const createDynamicIcon = (text: string, isSelected: boolean, count?: number) => {
@@ -42,6 +43,15 @@ interface MapControllerProps {
 
 function MapController({ selectedEvent, triggerLocate, manualLocation, onLocationFound }: MapControllerProps) {
   const map = useMap()
+
+  // 0. Kap boyutu değişince (mobilde gizli harita sekmesi açılınca, döndürünce, panel daralınca) Leaflet'i yeniden ölç.
+  //    Gerekli: Leaflet gizli kapta 0×0 ölçer ve kendi başına fark etmez; MapLibre tuvali de Leaflet'in 'resize' olayını bekler.
+  useEffect(() => {
+    if (typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(() => map.invalidateSize())
+    ro.observe(map.getContainer())
+    return () => ro.disconnect()
+  }, [map])
 
   // 1. Etkinlik Seçilince Uç
   useEffect(() => {
@@ -90,6 +100,16 @@ interface MapProps {
 export default function Map({ events, selectedEvent, triggerLocate, markerMode, manualLocation, onEventSelect, onVenueClick, onLocationFound }: MapProps) {
   const [userPos, setUserPos] = useState<LatLng | null>(null)
   const [showPopup, setShowPopup] = useState<string | null>(null)
+  const [vectorFailed, setVectorFailed] = useState(false)
+  const webgl = useMemo(() => hasWebGL(), [])
+  const basemap = chooseBasemap({
+    rasterUrl: process.env.NEXT_PUBLIC_MAP_TILE_URL,
+    rasterAttribution: process.env.NEXT_PUBLIC_MAP_TILE_ATTRIBUTION,
+    styleUrl: process.env.NEXT_PUBLIC_MAP_STYLE_URL,
+    webgl,
+    vectorFailed,
+  })
+  const onVectorFail = useCallback(() => setVectorFailed(true), [])
 
   // Group events by venue (roughly same location)
   const groupedEvents = useMemo(() => {
@@ -114,12 +134,10 @@ export default function Map({ events, selectedEvent, triggerLocate, markerMode, 
   }, [events])
 
   return (
-    <MapContainer center={[39.4, 31.0]} zoom={6} style={{ height: '100%', width: '100%' }} zoomControl={false}>
-      <TileLayer
-        url={TILE_URL}
-        attribution={TILE_ATTRIBUTION}
-        maxZoom={19}
-      />
+    <MapContainer center={[39.4, 31.0]} zoom={6} maxZoom={19} style={{ height: '100%', width: '100%' }} zoomControl={false}>
+      {basemap.kind === 'vector'
+        ? <VectorBasemap style={basemap.style} attribution={basemap.attribution} onFail={onVectorFail} />
+        : <TileLayer key={basemap.url} url={basemap.url} attribution={basemap.attribution} maxZoom={19} />}
 
       <MapController
         selectedEvent={selectedEvent}

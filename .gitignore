@@ -43,3 +43,6 @@ next-env.d.ts
 /exports/
 debug_*.html
 debug_*.png
+
+# MapLibre işçisi: scripts/copy-maplibre-worker.mjs üretir
+/public/maplibre/
