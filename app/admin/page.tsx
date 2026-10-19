@@ -5,7 +5,7 @@ import { useState, useEffect, useRef } from 'react'
 import { adminDb as supabase } from '@/lib/admin-db'
 import AdminGate, { adminLogout } from '@/components/AdminGate'
 import SourcesPanel from '@/components/admin/SourcesPanel'
-import { Trash2, Edit, Upload, ImageIcon, MapPin, Calendar, Check, AlertTriangle, Ban, Music, Inbox, List, Phone, Mail, User, FileSpreadsheet, Download, Plus, Search, Info, Activity, X, ExternalLink, Clock, Copy, Link as LinkIcon } from 'lucide-react'
+import { Trash2, Edit, Upload, ImageIcon, MapPin, Calendar, AlertTriangle, Ban, Inbox, List, Phone, Mail, User, FileSpreadsheet, Download, Plus, Activity, X, ExternalLink, Clock, Copy, Link as LinkIcon } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import type { Venue, Organizer, Event, VenueApplication, ScraperLog, SheetRow, TicketDetail } from '@/lib/types'
 
@@ -100,7 +100,6 @@ function Admin() {
 
   // Filter state
   const [showPendingOnly, setShowPendingOnly] = useState(false)
-  const [showPastEvents, setShowPastEvents] = useState(false)
   const [linkImportUrl, setLinkImportUrl] = useState('')
   const [linkImportLoading, setLinkImportLoading] = useState(false)
   const [scrapedSessions, setScrapedSessions] = useState<ScrapedSession[]>([])
@@ -115,13 +114,6 @@ function Admin() {
   // Excel upload refs
   const eventExcelRef = useRef<HTMLInputElement>(null)
   const venueExcelRef = useRef<HTMLInputElement>(null)
-
-  useEffect(() => {
-    fetchEvents()
-    fetchApplications()
-    fetchResources()
-    fetchScraperLogs()
-  }, [])
 
   const fetchEvents = async () => {
     const { data } = await supabase.from('events').select('*').order('is_approved', { ascending: true }).order('id', { ascending: false })
@@ -144,6 +136,13 @@ function Admin() {
     const { data } = await supabase.from('scraper_logs').select('*').order('created_at', { ascending: false }).limit(50)
     if (data) setScraperLogs(data)
   }
+
+  useEffect(() => {
+    fetchEvents()
+    fetchApplications()
+    fetchResources()
+    fetchScraperLogs()
+  }, [])
 
   const triggerAutoFetch = async () => {
     setLoading(true); setMsg('Yayındaki etkinlikler kontrol ediliyor... Bu 2-5 dakika sürebilir.')
@@ -373,7 +372,6 @@ function Admin() {
     toast('✅ Etkinlik kopyalandı! Yeni tarih ve mekan girerek kaydedin.')
   }
 
-  const handleCancelEdit = () => { setEditingId(null); resetForm(); }
   const resetForm = () => {
     setFormData({
       title: '', venue_mode: 'existing', venue_id: '', venue_name: '', address: '', category: 'Müzik', price: '',
@@ -444,7 +442,7 @@ function Admin() {
         }
       } else if (formData.venue_mode === 'new') {
         if (finalVenueName && !finalVenueId) {
-          const { data: newVenue, error } = await supabase.from('venues').insert([{
+          const { data: newVenue } = await supabase.from('venues').insert([{
             name: finalVenueName, address: finalAddress, lat: finalLat, lng: finalLng
           }]).select().single()
           if (newVenue) { finalVenueId = newVenue.id; fetchResources(); }
@@ -1424,7 +1422,7 @@ function Admin() {
                     <div key={event.id} className={`p-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition flex flex-col md:flex-row gap-4 items-start md:items-center justify-between ${!event.is_approved ? 'bg-red-50 dark:bg-red-900/20' : ''}`}>
                       <div className="flex gap-3 items-center">
                         <div className="w-12 h-12 bg-gray-200 dark:bg-gray-600 rounded-lg shrink-0 flex items-center justify-center overflow-hidden">
-                          {event.image_url ? <img src={event.image_url} className="w-full h-full object-cover" /> : <ImageIcon size={20} className="text-gray-400" />}
+                          {event.image_url ? <img src={event.image_url} alt={event.title} className="w-full h-full object-cover" /> : <ImageIcon size={20} className="text-gray-400" />}
                         </div>
                         <div>
                           <div className="font-bold text-gray-900 dark:text-white leading-tight">{event.title}</div>

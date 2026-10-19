@@ -91,7 +91,7 @@ function parseTurkishDate(dateStr: string): Date | null {
         const minutes = timeMatch ? parseInt(timeMatch[2]) : 0;
 
         return new Date(year, month, day, hours, minutes);
-    } catch (e) {
+    } catch {
         return null;
     }
 }

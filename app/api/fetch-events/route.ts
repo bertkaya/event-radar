@@ -72,7 +72,7 @@ async function fetchLavarlaEvents() {
                 try {
                     startTime = cleanStart ? new Date(cleanStart).toISOString() : null;
                     endTime = cleanEnd ? new Date(cleanEnd).toISOString() : null;
-                } catch (e) { continue; }
+                } catch { continue; }
 
                 if (!startTime) continue;
 

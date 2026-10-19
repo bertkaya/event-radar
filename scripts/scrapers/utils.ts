@@ -187,7 +187,7 @@ export async function dismissPopups(page: Page) {
                         }
                     }
                 }
-            } catch (e) {
+            } catch {
                 // Ignore - popup not present
             }
         }

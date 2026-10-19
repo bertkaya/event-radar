@@ -1,7 +1,6 @@
 
 import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
-import fs from 'fs';
 import path from 'path';
 import axios from 'axios';
 
@@ -28,7 +27,7 @@ async function downloadImage(url: string): Promise<Buffer | null> {
 }
 
 async function uploadToSupabase(buffer: Buffer, filename: string): Promise<string | null> {
-    const { data, error } = await supabase.storage
+    const { error } = await supabase.storage
         .from('event-images')
         .upload(`cached/${filename}`, buffer, {
             contentType: 'image/jpeg',

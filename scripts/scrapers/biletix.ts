@@ -1,7 +1,6 @@
 
 import { Scraper, Event, TicketDetail } from './types.js';
-import { getBrowser, normalizeDate, sleep, dismissPopups, safeNavigate } from './utils.js';
-import { Page } from 'puppeteer';
+import { getBrowser, normalizeDate, sleep, safeNavigate } from './utils.js';
 
 // All Biletix category URLs with proper category mapping
 const BILETIX_CATEGORIES = [
@@ -131,7 +130,6 @@ async function scrapeEventDetail(browser: any, url: string, category: string): P
 
         // Basic info extraction
         const basicInfo = await page.evaluate(() => {
-            const getText = (sel: string) => document.querySelector(sel)?.textContent?.trim() || '';
             const getMeta = (prop: string) => document.querySelector(`meta[property="${prop}"]`)?.getAttribute('content') || '';
 
             return {
@@ -164,7 +162,7 @@ async function scrapeEventDetail(browser: any, url: string, category: string): P
                 await listButton.click();
                 await sleep(1500);
             }
-        } catch (e) { }
+        } catch { }
 
         // Extract date from meta or page
         const dateInfo = await page.evaluate(() => {
@@ -230,7 +228,7 @@ async function scrapeEventDetail(browser: any, url: string, category: string): P
 
                 return tickets;
             });
-        } catch (e) { }
+        } catch { }
 
         // Build the event object
         const startTime = normalizeDate(dateInfo.startMeta || '') || new Date().toISOString();

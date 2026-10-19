@@ -7,7 +7,7 @@ import { toast } from '@/lib/toast'
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
-import { LogOut, MapPin, Calendar, Heart, ArrowLeft, Settings, Star, X, Plus, History, Music, Youtube, Link as LinkIcon, Save } from 'lucide-react'
+import { LogOut, MapPin, Calendar, Heart, ArrowLeft, Settings, Star, X, Plus, History, Music, Link as LinkIcon, Save } from 'lucide-react'
 import Link from 'next/link'
 import { formatPrice } from '@/lib/utils'
 
@@ -24,31 +24,30 @@ export default function Profile() {
 
   const router = useRouter()
 
+  useEffect(() => {
+    async function getProfileData() {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { router.push('/login'); return }
+      setUser(user)
 
-  async function getProfileData() {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { router.push('/login'); return }
-    setUser(user)
+      const { data: profileData } = await supabase.from('profiles').select('*').eq('id', user.id).single()
+      setProfile(profileData)
 
-    const { data: profileData } = await supabase.from('profiles').select('*').eq('id', user.id).single()
-    setProfile(profileData)
+      // Varsa eski verileri doldur
+      if (profileData) {
+        setPlaylistLink(profileData.playlist_url || '')
+        setMusicVibe(profileData.music_vibe || '')
+      }
 
-    // Varsa eski verileri doldur
-    if (profileData) {
-      setPlaylistLink(profileData.playlist_url || '')
-      setMusicVibe(profileData.music_vibe || '')
+      const { data: favData } = await supabase.from('favorites').select('event_id, events (*)').eq('user_id', user.id)
+      if (favData) {
+        const favEvents = favData.map((f) => f.events as unknown as Event | null).filter((e): e is Event => Boolean(e))
+        setFavorites(favEvents)
+      }
+      setLoading(false)
     }
-
-    const { data: favData } = await supabase.from('favorites').select('event_id, events (*)').eq('user_id', user.id)
-    if (favData) {
-      const favEvents = favData.map((f) => f.events as unknown as Event | null).filter((e): e is Event => Boolean(e))
-      setFavorites(favEvents)
-    }
-    setLoading(false)
-  }
-
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- mount'ta veri çekme
-  useEffect(() => { getProfileData() }, [])
+    getProfileData()
+  }, [router])
 
   const handleLogout = async () => { await supabase.auth.signOut(); router.push('/') }
 
@@ -215,7 +214,7 @@ export default function Profile() {
               <div key={event.id} className="group bg-white dark:bg-gray-800 p-4 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 flex gap-4 hover:shadow-md transition relative overflow-hidden">
                 <button onClick={(e) => { e.preventDefault(); removeFavorite(event.id); }} className="absolute top-2 right-2 p-1.5 bg-white dark:bg-gray-700 text-gray-400 hover:text-red-500 rounded-full shadow-sm z-10 opacity-0 group-hover:opacity-100 transition" title="Listeden Çıkar"><X size={16} /></button>
                 <div className="w-24 h-24 bg-brand rounded-xl shrink-0 overflow-hidden relative flex items-center justify-center">
-                  {event.image_url ? <img src={event.image_url} className="w-full h-full object-cover" /> : <span className="text-white font-black text-lg tracking-tighter opacity-50">18-23</span>}
+                  {event.image_url ? <img src={event.image_url} alt={event.title} className="w-full h-full object-cover" /> : <span className="text-white font-black text-lg tracking-tighter opacity-50">18-23</span>}
                   <div className="absolute bottom-0 left-0 right-0 bg-black/60 backdrop-blur py-0.5 text-center"><span className="text-[8px] font-bold text-white uppercase">{event.category}</span></div>
                 </div>
                 <div className="flex-1 min-w-0 flex flex-col justify-center">
@@ -239,7 +238,7 @@ export default function Profile() {
               {pastEvents.map((event) => (
                 <div key={event.id} className="bg-gray-100 dark:bg-gray-800 p-3 rounded-xl flex gap-3 items-center">
                   <div className="w-12 h-12 bg-gray-300 dark:bg-gray-700 rounded-lg shrink-0 overflow-hidden">
-                    {event.image_url && <img src={event.image_url} className="w-full h-full object-cover" />}
+                    {event.image_url && <img src={event.image_url} alt={event.title} className="w-full h-full object-cover" />}
                   </div>
                   <div>
                     <h4 className="font-bold text-gray-600 dark:text-gray-400 text-sm">{event.title}</h4>

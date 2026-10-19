@@ -5,7 +5,7 @@ import { adminDb as supabase } from '@/lib/admin-db'
 import AdminGate from '@/components/AdminGate'
 import type { LucideIcon } from 'lucide-react'
 import type { Event } from '@/lib/types'
-import { Calendar, MapPin, BarChart3, TrendingUp, Users, Eye, Ticket, Share2, ArrowLeft } from 'lucide-react'
+import { Calendar, MapPin, BarChart3, TrendingUp, Eye, ArrowLeft } from 'lucide-react'
 import Link from 'next/link'
 
 // Stats card component
@@ -81,7 +81,6 @@ function PastEvents() {
     }
 
     useEffect(() => {
-        // eslint-disable-next-line react-hooks/set-state-in-effect -- mount'ta veri çekme
         fetchPastEvents()
     }, [])
 
@@ -158,7 +157,7 @@ function PastEvents() {
                             {pastEvents.map(event => (
                                 <div key={event.id} className="p-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition flex gap-4 items-center">
                                     <div className="w-12 h-12 bg-gray-200 dark:bg-gray-600 rounded-lg shrink-0 flex items-center justify-center overflow-hidden">
-                                        {event.image_url ? <img src={event.image_url} className="w-full h-full object-cover opacity-60" /> : <Calendar size={20} className="text-gray-400" />}
+                                        {event.image_url ? <img src={event.image_url} alt={event.title} className="w-full h-full object-cover opacity-60" /> : <Calendar size={20} className="text-gray-400" />}
                                     </div>
                                     <div className="flex-1 min-w-0">
                                         <div className="font-bold text-gray-900 dark:text-white leading-tight truncate">{event.title}</div>

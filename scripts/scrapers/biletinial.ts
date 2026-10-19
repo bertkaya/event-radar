@@ -1,4 +1,4 @@
-import { Scraper, Event, TicketDetail } from './types';
+import { Scraper, Event } from './types';
 import { getBrowser, normalizeDate, sleep, dismissPopups, safeNavigate, autoScroll } from './utils';
 
 // All Biletinial category URLs with proper category mapping
@@ -140,11 +140,10 @@ async function scrapeEventDetail(browser: any, url: string, category: string): P
                 await detailTab.click();
                 await sleep(1000);
             }
-        } catch (e) { }
+        } catch { }
 
         // Extract all event information
         const eventInfo = await page.evaluate(() => {
-            const getText = (sel: string) => document.querySelector(sel)?.textContent?.trim() || '';
             const getMeta = (prop: string) => document.querySelector(`meta[property = "${prop}"]`)?.getAttribute('content') || '';
 
             // Title

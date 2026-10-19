@@ -94,7 +94,7 @@ async function fetchLavarlaEvents() {
                 try {
                     startTime = cleanStart ? new Date(cleanStart).toISOString() : null;
                     endTime = cleanEnd ? new Date(cleanEnd).toISOString() : null;
-                } catch (e) {
+                } catch {
                     console.warn(`Date parsing failed for ${url} (Meta: ${startDateMeta})`);
                     continue;
                 }
@@ -144,7 +144,7 @@ async function fetchLavarlaEvents() {
 
                 // 3. Upsert into Supabase
                 if (supabaseUrl && supabaseKey) {
-                    const { error } = await supabase
+                    await supabase
                         .from('events')
                         .upsert(eventData, { onConflict: 'source_url' });
 

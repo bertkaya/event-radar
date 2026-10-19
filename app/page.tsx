@@ -5,20 +5,21 @@ import { toast } from '@/lib/toast'
 import { useState, useEffect, useRef } from 'react'
 import dynamic from 'next/dynamic'
 import { supabase } from '@/lib/supabase'
-import { 
-  MapPin, Calendar, Navigation, Filter, Star, LogOut, Heart, Share2, Ticket, Map, Ban, X, Clock, 
-  CheckCircle, ChevronDown, Globe, ArrowUpDown, Banknote, CalendarPlus, Music, Send, Store, Mail, 
-  Utensils, Sparkles, Info, Instagram, Twitter, MessageCircle, Download, User, Bell, Check, Plus,
-  Compass, Shuffle, Moon, Zap, Users, Flame, Smile, Search, HelpCircle, Footprints, Car
+import {
+  MapPin, Navigation, LogOut, Map, X, ChevronDown, Send, Store, Mail,
+  User, Bell, Compass, Shuffle, Moon, Search
 } from 'lucide-react'
 import Link from 'next/link'
 import SkeletonCard from '@/components/Skeleton'
-import SourceLine from '@/components/SourceLine'
-import ReportButton from '@/components/ReportButton'
+import SubmissionModals from '@/components/home/SubmissionModals'
+import NightPlannerModal from '@/components/home/NightPlannerModal'
+import SurpriseModal from '@/components/home/SurpriseModal'
+import EventDetailModal from '@/components/home/EventDetailModal'
+import EventCard from '@/components/home/EventCard'
 import type { Event, SelectableEvent, MapLocation, AppNotification, Review, MaybeEvent } from '@/lib/types'
 import type { User as AuthUser } from '@supabase/supabase-js'
 import { fakeEvents } from '@/lib/data'
-import { getDistanceFromLatLonInKm, formatPrice } from '@/lib/utils'
+import { getDistanceFromLatLonInKm } from '@/lib/utils'
 import { deduplicateEvents } from '@/lib/dedup'
 import { rankEvents, ScoredEvent } from '@/lib/recommendation'
 import { generateNightPlans, NightPlan } from '@/lib/night_planner'
@@ -26,13 +27,10 @@ import { parseNaturalLanguageQuery } from '@/lib/nlp_filter'
 import { eventUrl } from '@/lib/site'
 import { DEMO_MODE, PRESET_LOCATIONS, DEFAULT_LOCATION, LOCATION_STORAGE_KEY, KIND_FILTERS, hasCoords, CATEGORIES, MOODS, formatDateRange } from '@/lib/home'
 
-
 const MapWithNoSSR = dynamic(() => import('@/components/Map'), {
   ssr: false,
   loading: () => <div className="h-full w-full flex items-center justify-center bg-gray-100 dark:bg-gray-900 text-brand font-bold">Harita Yükleniyor...</div>
 })
-
-
 
 export default function Home() {
   const [events, setEvents] = useState<ScoredEvent[]>([])
@@ -77,7 +75,7 @@ export default function Home() {
   const [activeCategory, setActiveCategory] = useState<string>('Tümü')
   const [activeMood, setActiveMood] = useState<string>('Tümü') // Mood Filtresi
   const [timeFilter, setTimeFilter] = useState<'all' | 'today' | 'tomorrow' | 'weekend'>('all')
-  const [sortBy, setSortBy] = useState<'date-asc' | 'date-desc' | 'popular' | 'match'>('match')
+  const [sortBy] = useState<'date-asc' | 'date-desc' | 'popular' | 'match'>('match')
   const [priceFilter, setPriceFilter] = useState<'all' | 'free'>('all')
   const [priceRange, setPriceRange] = useState<number[]>([0, 5000]) // [min, max]
   const [cityFilter, setCityFilter] = useState<{ lat: number, lng: number, city: string | null } | null>(null) // City Filter
@@ -91,7 +89,6 @@ export default function Home() {
 
   const [currentLocName, setCurrentLocName] = useState(DEFAULT_LOCATION.name)
   const [user, setUser] = useState<AuthUser | null>(null)
-  const [copied, setCopied] = useState(false)
   const [venueForm, setVenueForm] = useState({ venue_name: '', contact_name: '', phone: '', email: '', message: '' })
   const [showSuggestModal, setShowSuggestModal] = useState(false)
   const [suggestForm, setSuggestForm] = useState({ title: '', event_url: '', notes: '', contact_email: '' })
@@ -108,6 +105,28 @@ export default function Home() {
   const [showReviewForm, setShowReviewForm] = useState(false)
   const [reviewForm, setReviewForm] = useState({ rating: 5, comment: '' })
   const [submittingReview, setSubmittingReview] = useState(false)
+
+  // Fetch reviews for selected event
+  const fetchEventReviews = async (eventId: number) => {
+    const { data } = await supabase
+      .from('event_reviews')
+      .select('*, profiles:user_id(id)')
+      .eq('event_id', eventId)
+      .eq('status', 'approved')
+      .order('created_at', { ascending: false })
+      .limit(10)
+    if (data) setEventReviews(data)
+  }
+
+  // When selected event changes, fetch its reviews
+  const onEventSelect = (event: SelectableEvent | null) => {
+    setSelectedEvent(event)
+    if (event) {
+      fetchEventReviews(event.id)
+      setShowReviewForm(false)
+      setReviewForm({ rating: 5, comment: '' })
+    }
+  }
 
   const fetchUserData = async () => {
     const { data: { user } } = await supabase.auth.getUser()
@@ -148,7 +167,6 @@ export default function Home() {
     }
     setFollowedVenues(newFollows)
   }
-
 
   const fetchData = async () => {
     setLoading(true)
@@ -347,6 +365,7 @@ export default function Home() {
   useEffect(() => { fetchData() }, [])
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { applyFilters() }, [activeCategory, activeMood, timeFilter, discoveryMode, searchQuery, sortBy, priceFilter, kindFilter, allEvents, favCounts, cityFilter, priceRange, userCoords, userPrefs])
+
   // AI Night Planner Trigger
   const handleOpenNightPlanner = () => {
     const plans = generateNightPlans(allEvents, {
@@ -366,6 +385,18 @@ export default function Home() {
     const chosen = events[randomIndex]
     setSurpriseEvent(chosen)
     setShowSurpriseModal(true)
+  }
+
+  const handleLocate = () => { setTriggerLocate(true); setCurrentLocName("Konumum"); setTimeout(() => setTriggerLocate(false), 1000) }
+  const handleSelectLocation = (loc: typeof PRESET_LOCATIONS[number]) => {
+    setManualLocation(loc);
+    setCurrentLocName(loc.name.replace('• ', ''));
+    setShowLocModal(false);
+    try { localStorage.setItem(LOCATION_STORAGE_KEY, loc.name) } catch { /* depolama kapalı olabilir */ }
+
+    // Semt seçilse de filtre şehrin tamamıdır; harita semte yakınlaşır
+    const cityPreset = PRESET_LOCATIONS.find(l => l.city === loc.city && l.zoom <= 12) || loc
+    setCityFilter(loc.city ? { lat: cityPreset.lat, lng: cityPreset.lng, city: loc.city } : null)
   }
 
   // NLP Search Handler
@@ -419,7 +450,7 @@ export default function Home() {
     }
   }
 
-  // --- SOCIAL SHERE ---
+  // --- SOCIAL SHARE ---
   const handleShare = async (event: Event, platform?: 'whatsapp' | 'twitter' | 'instagram') => {
     const url = eventUrl(event.id)
     const shareText = `🔥 ${event.title} @ ${event.venue_name}\n🗓️ ${formatDateRange(event.start_time, event.end_time)}\n\n${url}`
@@ -433,8 +464,8 @@ export default function Home() {
       navigator.clipboard.writeText(shareText);
     } else {
       // Native or Copy
-      if (navigator.share) { try { await navigator.share({ title: event.title, text: shareText, url }) } catch (err) { } }
-      else { navigator.clipboard.writeText(shareText); setCopied(true); setTimeout(() => setCopied(false), 2000) }
+      if (navigator.share) { try { await navigator.share({ title: event.title, text: shareText, url }) } catch { /* iptal edildi */ } }
+      else { navigator.clipboard.writeText(shareText); toast('Link kopyalandı!') }
     }
     await supabase.from('analytics').insert([{ event_id: event.id, category: event.category, action_type: 'share' }])
   }
@@ -475,11 +506,6 @@ END:VCALENDAR`;
     supabase.from('analytics').insert([{ event_id: event.id, category: event.category, action_type: 'calendar' }])
   }
 
-  const openNearbyRestaurants = (venue: string, lat: number, lng: number) => {
-    const url = `https://www.google.com/maps/search/restaurants/@${lat},${lng},16z/data=!3m1!4b1?q=restaurants+near+${encodeURIComponent(venue)}`;
-    window.open(url, '_blank');
-  }
-
   const handleVenueSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const res = await fetch('/api/submit', {
@@ -506,18 +532,6 @@ END:VCALENDAR`;
   }
 
   const openTicket = (e: MaybeEvent, url?: string) => { e?.stopPropagation(); if (url) window.open(url, '_blank', 'noopener') }
-
-  // Fetch reviews for selected event
-  const fetchEventReviews = async (eventId: number) => {
-    const { data } = await supabase
-      .from('event_reviews')
-      .select('*, profiles:user_id(id)')
-      .eq('event_id', eventId)
-      .eq('status', 'approved')
-      .order('created_at', { ascending: false })
-      .limit(10)
-    if (data) setEventReviews(data)
-  }
 
   // Submit a review
   const handleSubmitReview = async () => {
@@ -548,16 +562,6 @@ END:VCALENDAR`;
     setSubmittingReview(false)
   }
 
-  // When selected event changes, fetch its reviews
-  const onEventSelect = (event: SelectableEvent | null) => {
-    setSelectedEvent(event)
-    if (event) {
-      fetchEventReviews(event.id)
-      setShowReviewForm(false)
-      setReviewForm({ rating: 5, comment: '' })
-    }
-  }
-
   // Submit event suggestion
   const handleSuggestSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -576,25 +580,11 @@ END:VCALENDAR`;
     else { toast(json.error || 'Hata oluştu.'); }
   }
 
-  const handleLocate = () => { setTriggerLocate(true); setCurrentLocName("Konumum"); setTimeout(() => setTriggerLocate(false), 1000) }
-  const handleSelectLocation = (loc: typeof PRESET_LOCATIONS[number]) => {
-    setManualLocation(loc);
-    setCurrentLocName(loc.name.replace('• ', ''));
-    setShowLocModal(false);
-    try { localStorage.setItem(LOCATION_STORAGE_KEY, loc.name) } catch { /* depolama kapalı olabilir */ }
-
-    // Semt seçilse de filtre şehrin tamamıdır; harita semte yakınlaşır
-    const cityPreset = PRESET_LOCATIONS.find(l => l.city === loc.city && l.zoom <= 12) || loc
-    setCityFilter(loc.city ? { lat: cityPreset.lat, lng: cityPreset.lng, city: loc.city } : null)
-  }
-
   // Son seçilen konumu hatırla (yalnızca bu tarayıcıda)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     try {
       const saved = localStorage.getItem(LOCATION_STORAGE_KEY)
       const loc = PRESET_LOCATIONS.find(l => l.name === saved)
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- kayıtlı tercihi mount'ta uygula
       if (loc && loc !== DEFAULT_LOCATION) handleSelectLocation(loc)
     } catch { /* depolama kapalı olabilir */ }
   }, [])
@@ -604,513 +594,74 @@ END:VCALENDAR`;
     if (userCoords && !autoNearDone.current && discoveryMode === 'all') { autoNearDone.current = true; setDiscoveryMode('nearme') }
   }, [userCoords, discoveryMode])
 
-
   return (
     <div className="flex flex-col h-screen w-full bg-white dark:bg-gray-900 text-black dark:text-gray-100 font-sans overflow-hidden transition-colors">
 
-      {/* LOC MODAL */}
-      {showLocModal && (
-        <div className="fixed inset-0 z-[2100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-white dark:bg-gray-800 w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden">
-            <div className="p-4 border-b dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-900">
-              <h3 className="font-bold text-gray-800 dark:text-white flex items-center gap-2"><Globe size={18} /> Konum Değiştir</h3>
-              <button onClick={() => setShowLocModal(false)}><X size={20} className="text-gray-500" /></button>
-            </div>
-            <div className="p-2 max-h-[60vh] overflow-y-auto">
-              {PRESET_LOCATIONS.map((loc) => (
-                <button key={loc.name} onClick={() => handleSelectLocation(loc)} className="w-full text-left p-3 hover:bg-brand/5 dark:hover:bg-gray-700 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 border-b border-gray-50 dark:border-gray-700 last:border-0 transition-colors">{loc.name}</button>
-              ))}
-            </div>
-            <div className="p-4 bg-gray-50 dark:bg-gray-900 border-t dark:border-gray-700">
-              <button onClick={() => { handleLocate(); setShowLocModal(false); }} className="w-full bg-black dark:bg-white dark:text-black text-white py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2"><Navigation size={16} /> Konumumu Bul (GPS)</button>
-            </div>
-          </div>
-        </div>
-      )}
+      <SubmissionModals
+        showLocModal={showLocModal}
+        setShowLocModal={setShowLocModal}
+        handleSelectLocation={handleSelectLocation}
+        handleLocate={handleLocate}
+        showVenueModal={showVenueModal}
+        setShowVenueModal={setShowVenueModal}
+        venueForm={venueForm}
+        setVenueForm={setVenueForm}
+        venueKvkk={venueKvkk}
+        setVenueKvkk={setVenueKvkk}
+        handleVenueSubmit={handleVenueSubmit}
+        showSuggestModal={showSuggestModal}
+        setShowSuggestModal={setShowSuggestModal}
+        suggestForm={suggestForm}
+        setSuggestForm={setSuggestForm}
+        handleSuggestSubmit={handleSuggestSubmit}
+        honeypot={honeypot}
+        setHoneypot={setHoneypot}
+        showVenueEventsModal={showVenueEventsModal}
+        setShowVenueEventsModal={setShowVenueEventsModal}
+        allEvents={allEvents}
+        onEventSelect={onEventSelect}
+      />
 
-      {/* VENUE APPLY MODAL */}
-      {showVenueModal && (
-        <div className="fixed inset-0 z-[2100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-white dark:bg-gray-800 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden">
-            <div className="p-6 border-b dark:border-gray-700 bg-brand text-white text-center relative">
-              <h3 className="font-black text-xl tracking-tight">MEKANINI EKLE</h3>
-              <p className="text-xs opacity-90">18-23 Ailesine Katılın</p>
-              <button onClick={() => setShowVenueModal(false)} className="absolute top-4 right-4 text-white/80 hover:text-white"><X size={24} /></button>
-            </div>
-            <div className="p-6">
-              <form onSubmit={handleVenueSubmit} className="space-y-3">
-                <input required placeholder="Mekan Adı" className="w-full border p-3 rounded-lg dark:bg-gray-700 dark:border-gray-600" value={venueForm.venue_name} onChange={e => setVenueForm({ ...venueForm, venue_name: e.target.value })} />
-                <input required placeholder="Yetkili Kişi" className="w-full border p-3 rounded-lg dark:bg-gray-700 dark:border-gray-600" value={venueForm.contact_name} onChange={e => setVenueForm({ ...venueForm, contact_name: e.target.value })} />
-                <div className="flex gap-2">
-                  <input required placeholder="Telefon" className="w-full border p-3 rounded-lg dark:bg-gray-700 dark:border-gray-600" value={venueForm.phone} onChange={e => setVenueForm({ ...venueForm, phone: e.target.value })} />
-                  <input required type="email" placeholder="E-mail" className="w-full border p-3 rounded-lg dark:bg-gray-700 dark:border-gray-600" value={venueForm.email} onChange={e => setVenueForm({ ...venueForm, email: e.target.value })} />
-                </div>
-                <textarea placeholder="Mesajınız..." className="w-full border p-3 rounded-lg h-20 resize-none dark:bg-gray-700 dark:border-gray-600" value={venueForm.message} onChange={e => setVenueForm({ ...venueForm, message: e.target.value })} />
-                <input type="text" name="website" tabIndex={-1} autoComplete="off" aria-hidden="true" className="hidden" value={honeypot} onChange={e => setHoneypot(e.target.value)} />
-                <label className="flex items-start gap-2 text-xs text-gray-600 dark:text-gray-300">
-                  <input type="checkbox" required checked={venueKvkk} onChange={e => setVenueKvkk(e.target.checked)} className="mt-0.5" />
-                  <span><Link href="/kvkk" target="_blank" className="underline font-bold">KVKK Aydınlatma Metni</Link>&apos;ni okudum; iletişim bilgilerimin başvurumun değerlendirilmesi için işlenmesini kabul ediyorum.</span>
-                </label>
-                <button className="w-full bg-black text-white dark:bg-white dark:text-black py-3 rounded-xl font-bold">Başvuru Gönder</button>
-              </form>
-            </div>
-          </div>
-        </div>
-      )}
+      <NightPlannerModal
+        show={showNightPlannerModal}
+        onClose={() => setShowNightPlannerModal(false)}
+        allEvents={allEvents}
+        plannerInput={plannerInput}
+        setPlannerInput={setPlannerInput}
+        nightPlans={nightPlans}
+        setNightPlans={setNightPlans}
+        onEventSelect={onEventSelect}
+      />
 
-      {/* SUGGEST EVENT MODAL */}
-      {showSuggestModal && (
-        <div className="fixed inset-0 z-[2100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-white dark:bg-gray-800 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden">
-            <div className="p-6 border-b dark:border-gray-700 bg-brand text-white text-center relative">
-              <h3 className="font-black text-xl tracking-tight">ETKİNLİK ÖNER</h3>
-              <p className="text-xs opacity-90">Kaçırdığımız bir etkinlik mi var?</p>
-              <button onClick={() => setShowSuggestModal(false)} className="absolute top-4 right-4 text-white/80 hover:text-white"><X size={24} /></button>
-            </div>
-            <div className="p-6">
-              <form onSubmit={handleSuggestSubmit} className="space-y-3">
-                <input required placeholder="Etkinlik Adı *" className="w-full border p-3 rounded-lg dark:bg-gray-700 dark:border-gray-600" value={suggestForm.title} onChange={e => setSuggestForm({ ...suggestForm, title: e.target.value })} />
-                <input placeholder="Etkinlik Linki (bilet sitesi vb.)" className="w-full border p-3 rounded-lg dark:bg-gray-700 dark:border-gray-600" value={suggestForm.event_url} onChange={e => setSuggestForm({ ...suggestForm, event_url: e.target.value })} />
-                <textarea placeholder="Notlar (tarih, mekan vb.)" className="w-full border p-3 rounded-lg h-20 resize-none dark:bg-gray-700 dark:border-gray-600" value={suggestForm.notes} onChange={e => setSuggestForm({ ...suggestForm, notes: e.target.value })} />
-                <input type="email" placeholder="E-mail (opsiyonel)" className="w-full border p-3 rounded-lg dark:bg-gray-700 dark:border-gray-600" value={suggestForm.contact_email} onChange={e => setSuggestForm({ ...suggestForm, contact_email: e.target.value })} />
-                <input type="text" name="website" tabIndex={-1} autoComplete="off" aria-hidden="true" className="hidden" value={honeypot} onChange={e => setHoneypot(e.target.value)} />
-                <p className="text-[11px] text-gray-500">E-postanız yalnızca öneriniz hakkında dönüş için kullanılır. <Link href="/kvkk" target="_blank" className="underline">KVKK</Link></p>
-                <button className="w-full bg-black text-white dark:bg-white dark:text-black py-3 rounded-xl font-bold">Etkinlik Öner</button>
-              </form>
-            </div>
-          </div>
-        </div>
-      )}
+      <SurpriseModal
+        show={showSurpriseModal}
+        surpriseEvent={surpriseEvent}
+        onClose={() => setShowSurpriseModal(false)}
+        onPickAnother={handleSurpriseMe}
+        onEventSelect={onEventSelect}
+      />
 
-      {/* VENUE EVENTS MODAL */}
-      {showVenueEventsModal && (
-        <div className="fixed inset-0 z-[2200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-white dark:bg-gray-800 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden max-h-[80vh] flex flex-col">
-            <div className="p-4 border-b dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-900">
-              <div className="flex items-center gap-2 font-bold"><Store size={18} /> Mekandaki Diğer Etkinlikler</div>
-              <button onClick={() => setShowVenueEventsModal(null)}><X size={20} /></button>
-            </div>
-            <div className="p-4 overflow-y-auto space-y-3 bg-gray-50 dark:bg-black/20 flex-1">
-              {allEvents.filter(e => e.venue_name === showVenueEventsModal).length === 0 && <div className="text-gray-500 text-center">Başka etkinlik bulunamadı.</div>}
-              {allEvents.filter(e => e.venue_name === showVenueEventsModal).map(e => (
-                <div key={e.id} onClick={() => { onEventSelect(e); setShowVenueEventsModal(null); }} className="bg-white dark:bg-gray-800 p-3 rounded-xl border border-gray-100 dark:border-gray-700 flex gap-3 cursor-pointer hover:border-brand/50 transition">
-                  {e.image_url && <img src={e.image_url} className="w-16 h-16 object-cover rounded-lg bg-gray-200" />}
-                  <div>
-                    <div className="font-bold text-sm leading-tight">{e.title}</div>
-                    <div className="text-xs text-gray-500 mt-1">{formatDateRange(e.start_time)}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* AI NIGHT PLANNER MODAL */}
-      {showNightPlannerModal && (
-        <div className="fixed inset-0 z-[2300] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-in fade-in">
-          <div className="bg-white dark:bg-gray-900 w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden max-h-[88vh] flex flex-col border border-gray-200 dark:border-gray-800">
-            <div className="p-5 border-b dark:border-gray-800 bg-gradient-to-r from-red-950 via-gray-900 to-black text-white flex justify-between items-center shrink-0">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 bg-brand/30 rounded-xl text-brand-light"><Moon size={22} /></div>
-                <div>
-                  <h3 className="font-black text-lg tracking-tight">BU AKŞAMI PLANLA (NIGHT PLANNER)</h3>
-                  <p className="text-xs text-gray-400">Yemekten etkinliğe ve gece kapanışına kadar eksiksiz rota</p>
-                </div>
-              </div>
-              <button onClick={() => setShowNightPlannerModal(false)} className="p-2 text-gray-400 hover:text-white"><X size={22} /></button>
-            </div>
-
-            {/* Planner Inputs Bar */}
-            <div className="p-4 bg-gray-50 dark:bg-gray-800/60 border-b dark:border-gray-800 flex flex-wrap items-center justify-between gap-3 text-xs">
-              <div className="flex items-center gap-1.5 font-bold text-gray-600 dark:text-gray-300">
-                <span>Kiminle:</span>
-                <div className="flex bg-white dark:bg-gray-900 p-1 rounded-lg border border-gray-200 dark:border-gray-700">
-                  {(['date', 'friends', 'solo', 'family'] as const).map(type => (
-                    <button
-                      key={type}
-                      onClick={() => {
-                        setPlannerInput(prev => ({ ...prev, partyType: type }));
-                        setNightPlans(generateNightPlans(allEvents, { ...plannerInput, partyType: type }));
-                      }}
-                      className={`px-2.5 py-1 rounded-md capitalize font-bold transition ${plannerInput.partyType === type ? 'bg-brand text-white' : 'text-gray-500'}`}
-                    >
-                      {type === 'date' ? 'Date 🍷' : type === 'friends' ? 'Arkadaşlar 🍻' : type === 'solo' ? 'Yalnız 🎒' : 'Ailece 👨‍👩‍👧'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <button
-                onClick={() => setNightPlans(generateNightPlans(allEvents, plannerInput))}
-                className="bg-brand text-white font-bold px-3 py-1.5 rounded-lg text-xs hover:bg-brand-dark transition flex items-center gap-1 shadow-sm"
-              >
-                <Shuffle size={13} /> Farklı Plan Üret
-              </button>
-            </div>
-
-            {/* Generated Itineraries */}
-            <div className="p-6 overflow-y-auto space-y-6 flex-1 bg-white dark:bg-gray-900">
-              {nightPlans.map((plan) => (
-                <div key={plan.id} className="bg-gray-50 dark:bg-gray-800/50 rounded-2xl border border-gray-200 dark:border-gray-700/80 p-5 shadow-sm space-y-4">
-                  <div className="flex flex-wrap justify-between items-start gap-2 border-b dark:border-gray-700/80 pb-3">
-                    <div>
-                      <span className="text-[10px] font-black uppercase text-brand tracking-wider bg-brand/10 px-2 py-0.5 rounded-full">{plan.mood}</span>
-                      <h4 className="font-black text-lg text-gray-900 dark:text-white mt-1 leading-snug">{plan.planTitle}</h4>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">{plan.tagline}</p>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-xs font-black text-brand">{plan.totalEstimatedCost}</div>
-                      <div className="text-[11px] text-gray-400">⏱️ Toplam ~{plan.totalDurationHours} Saat</div>
-                    </div>
-                  </div>
-
-                  {/* Steps Timeline */}
-                  <div className="space-y-4 relative before:absolute before:left-3 before:top-2 before:bottom-2 before:w-0.5 before:bg-gray-200 dark:before:bg-gray-700">
-                    {plan.steps.map((step, sIdx) => (
-                      <div key={sIdx} className="relative pl-8 flex flex-col gap-1">
-                        <div className={`absolute left-1.5 top-1 -translate-x-1/2 w-3.5 h-3.5 rounded-full border-2 border-white dark:border-gray-900 ${step.isMainEvent ? 'bg-brand ring-4 ring-brand/20' : 'bg-gray-400 dark:bg-gray-600'}`} />
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="font-black text-brand">{step.time}</span>
-                          <span className="text-[11px] font-bold text-gray-400 bg-white dark:bg-gray-800 px-2 py-0.5 rounded border border-gray-100 dark:border-gray-700">{step.estimatedCost}</span>
-                        </div>
-                        <div className="font-bold text-sm text-gray-900 dark:text-white flex items-center gap-1.5">
-                          {step.isMainEvent ? '🎟️' : step.type === 'dinner' ? '🍽️' : step.type === 'coffee' ? '☕' : '🍸'} {step.title}
-                        </div>
-                        <div className="text-xs text-gray-500 font-medium">📍 {step.placeName}</div>
-                        <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5 leading-relaxed">{step.description}</p>
-                        {step.isMainEvent && step.eventRef && (
-                          <div className="mt-2 flex gap-2">
-                            <button
-                              onClick={() => {
-                                setShowNightPlannerModal(false);
-                                onEventSelect(step.eventRef ?? null);
-                              }}
-                              className="text-xs bg-brand text-white font-bold px-3 py-1.5 rounded-lg hover:bg-brand-dark transition"
-                            >
-                              Etkinlik Detaylarını Gör
-                            </button>
-                            {step.eventRef.ticket_url && (
-                              <a
-                                href={step.eventRef.ticket_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 font-bold px-3 py-1.5 rounded-lg hover:bg-gray-200 transition"
-                              >
-                                Doğrudan Bilet Al
-                              </a>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* SURPRISE ME MODAL */}
-      {showSurpriseModal && surpriseEvent && (
-        <div className="fixed inset-0 z-[2300] flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in">
-          <div className="bg-white dark:bg-gray-900 w-full max-w-md rounded-3xl shadow-2xl overflow-hidden border border-gray-200 dark:border-gray-800 text-center relative flex flex-col max-h-[85vh]">
-            <button onClick={() => setShowSurpriseModal(false)} className="absolute top-4 right-4 z-20 bg-black/60 hover:bg-black text-white p-2 rounded-full transition"><X size={20} /></button>
-
-            <div className="relative h-56 bg-brand overflow-hidden shrink-0">
-              {surpriseEvent.image_url ? (
-                <img src={surpriseEvent.image_url} alt={surpriseEvent.title} className="w-full h-full object-cover" />
-              ) : (
-                <div className="flex items-center justify-center h-full text-white font-black text-3xl">18-23 SÜRPRİZİ</div>
-              )}
-              <div className="absolute top-3 left-3 bg-gradient-to-r from-amber-500 to-orange-500 text-white text-xs font-black px-3 py-1 rounded-full shadow-lg flex items-center gap-1">
-                🎲 BU AKŞAMIN SEÇİMİ
-              </div>
-              <div className="absolute bottom-3 left-3 right-3 flex justify-between items-center text-xs font-black text-white bg-black/60 backdrop-blur px-3 py-1.5 rounded-xl">
-                <span>{surpriseEvent.category} • {surpriseEvent.ai_mood || 'Özel Seçim'}</span>
-                <span className="text-amber-300">🎯 %{surpriseEvent.matchScore} Uyumlu</span>
-              </div>
-            </div>
-
-            <div className="p-6 space-y-4 flex-1 overflow-y-auto text-left">
-              <div>
-                <h3 className="text-xl font-black text-gray-900 dark:text-white leading-tight">{surpriseEvent.title}</h3>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 flex items-center gap-1">📍 {surpriseEvent.venue_name}</p>
-                <p className="text-xs text-brand font-bold mt-1">🕒 {formatDateRange(surpriseEvent.start_time, surpriseEvent.end_time)}</p>
-              </div>
-
-              <div className="bg-gray-50 dark:bg-gray-800 p-3 rounded-xl border border-gray-100 dark:border-gray-700 text-xs text-gray-600 dark:text-gray-300 leading-relaxed">
-                ✨ {surpriseEvent.summary || surpriseEvent.description || 'Akşamını renklendirecek heyecan dolu bir etkinlik!'}
-              </div>
-
-              <div className="flex items-center justify-between pt-2">
-                <span className="text-sm font-black text-brand bg-brand/10 px-3 py-1 rounded-lg">{formatPrice(surpriseEvent.price)}</span>
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleSurpriseMe}
-                    className="px-3 py-2.5 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-xl text-xs font-bold hover:bg-gray-200 transition flex items-center gap-1"
-                  >
-                    <Shuffle size={14} /> Başka Seç
-                  </button>
-                  <button
-                    onClick={() => {
-                      setShowSurpriseModal(false);
-                      onEventSelect(surpriseEvent);
-                    }}
-                    className="px-4 py-2.5 bg-brand hover:bg-brand-dark text-white rounded-xl text-xs font-black shadow-lg transition"
-                  >
-                    İncele & Katıl →
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {selectedEvent && (
-        <div className="fixed inset-0 z-[2000] flex items-end md:items-center justify-center">
-          <div className="absolute inset-0 z-[1] bg-black/60" onClick={() => setSelectedEvent(null)}></div>
-          <div onClick={(e) => e.stopPropagation()} className="bg-white dark:bg-gray-900 w-full md:w-[500px] md:rounded-3xl rounded-t-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] relative z-[2]">
-            <button onClick={() => setSelectedEvent(null)} className="absolute top-4 right-4 z-[3] bg-black/50 hover:bg-black text-white p-2 rounded-full transition"><X size={24} /></button>
-
-            <div className="h-64 md:h-72 bg-brand relative shrink-0 flex items-center justify-center overflow-hidden">
-              {selectedEvent.image_url ? (
-                <img src={selectedEvent.image_url} className={`w-full h-full object-cover ${selectedEvent.sold_out ? 'grayscale' : ''}`} />
-              ) : (
-                <div className="flex flex-col items-center justify-center w-full h-full p-8 gap-4 bg-brand">
-                  <div className="text-white font-black text-5xl tracking-tighter opacity-50">18-23</div>
-                  <div className="w-full h-[1px] bg-white/20"></div>
-                  <div className="flex items-center gap-3 text-white w-full">
-                    <div className="bg-white/10 p-2 rounded-lg text-white"><MapPin size={20} /></div>
-                    <div className="flex-1">
-                      <div className="text-xs font-bold text-white/60 uppercase flex items-center gap-2">
-                        Mekan
-                        <button onClick={(e) => { e.stopPropagation(); toggleFollow(selectedEvent.venue_name); }} className={`text-[10px] px-2 py-0.5 rounded-full font-bold transition flex items-center gap-1 ${followedVenues.includes(selectedEvent.venue_name) ? 'bg-white text-brand' : 'bg-white/10 hover:bg-white/20 text-white'}`}>
-                          {followedVenues.includes(selectedEvent.venue_name) ? <Check size={10} /> : <Plus size={10} />}
-                          {followedVenues.includes(selectedEvent.venue_name) ? 'Takip Ediliyor' : 'Takip Et'}
-                        </button>
-                      </div>
-                      <div className="font-bold text-lg text-white leading-tight">{selectedEvent.venue_name}</div>
-                      {selectedEvent.address && <div className="text-xs text-white/80 mt-1 leading-tight">{selectedEvent.address}</div>}
-                    </div>
-                    <button onClick={(e) => { e.stopPropagation(); setShowVenueEventsModal(selectedEvent.venue_name); }} className="text-xs bg-white/10 text-white px-2 py-1 rounded font-bold hover:bg-white/20">Diğer Etkinlikler</button>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-6 space-y-6">
-              <div>
-                <div className="flex justify-between items-start mb-2">
-                  <h2 className="font-black text-2xl text-gray-900 dark:text-white leading-tight">{selectedEvent.title}</h2>
-                  <span className="text-sm font-bold text-brand bg-brand/10 px-2 py-1 rounded shrink-0 ml-2">{formatPrice(selectedEvent.price)}</span>
-                </div>
-                <div className="text-sm text-gray-500 flex items-center gap-2">
-                  <Calendar size={14} /> {formatDateRange(selectedEvent.start_time, selectedEvent.end_time)}
-                </div>
-                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-                  <SourceLine event={selectedEvent} />
-                  <ReportButton key={selectedEvent.id} eventId={selectedEvent.id} />
-                </div>
-              </div>
-
-              {/* PERSONALIZED MATCH & DISTANCE INSIGHT */}
-              {selectedEvent.matchScore && (
-                <div className="bg-gradient-to-r from-red-950/40 to-purple-950/30 border border-brand/40 rounded-2xl p-4 shadow-sm">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-xs font-black text-brand flex items-center gap-1.5">
-                      <Sparkles size={15} /> 🎯 %{selectedEvent.matchScore} Seninle Uyumlu
-                    </span>
-                    {selectedEvent.walkMinutes && (
-                      <span className="text-[11px] font-bold text-gray-400 flex items-center gap-1">
-                        <Footprints size={13} className="text-emerald-400" /> ~{selectedEvent.walkMinutes} dk yürüme
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-gray-300 font-medium leading-relaxed">
-                    {selectedEvent.matchReason}
-                  </p>
-                </div>
-              )}
-
-              <div>
-                <h3 className="font-bold text-gray-900 dark:text-white mb-2">Etkinlik Hakkında</h3>
-                <p className="text-gray-600 dark:text-gray-400 leading-relaxed whitespace-pre-line">{selectedEvent.description || 'Açıklama bulunmuyor.'}</p>
-              </div>
-
-              {/* MULTI-TICKET PROVIDER COMPARISON */}
-              {selectedEvent.ticket_sources && selectedEvent.ticket_sources.length > 0 && (
-                <div className="bg-gray-50 dark:bg-gray-800/80 p-4 rounded-xl border border-gray-200 dark:border-gray-700">
-                  <h3 className="font-bold text-xs uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2.5 flex items-center gap-1.5">
-                    <Ticket size={14} className="text-brand" /> Bilet Sağlayıcıları ({selectedEvent.ticket_sources.length} Platform)
-                  </h3>
-                  <div className="space-y-2">
-                    {selectedEvent.ticket_sources.map((src, idx) => (
-                      <div key={idx} className="flex justify-between items-center p-2.5 bg-white dark:bg-gray-900 rounded-lg border border-gray-100 dark:border-gray-800 text-xs">
-                        <span className="font-bold text-gray-800 dark:text-gray-200 capitalize">{src.source}</span>
-                        <div className="flex items-center gap-2">
-                          <span className="font-black text-brand">{src.price}</span>
-                          <a href={src.url} target="_blank" rel="noopener noreferrer" className="bg-brand text-white px-2.5 py-1 rounded font-bold hover:bg-brand-dark transition text-[11px]">
-                            Seç
-                          </a>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {selectedEvent.rules && (
-                <div className="bg-yellow-50 dark:bg-yellow-900/10 p-4 rounded-xl border border-yellow-100 dark:border-yellow-900/20">
-                  <h3 className="font-bold text-yellow-800 dark:text-yellow-500 mb-2 flex items-center gap-2"><Info size={16} /> Good to Know / Kurallar</h3>
-                  <p className="text-sm text-yellow-900 dark:text-yellow-200/80 whitespace-pre-line">{selectedEvent.rules}</p>
-                </div>
-              )}
-
-              {selectedEvent.ticket_details && selectedEvent.ticket_details.length > 0 && (
-                <div className="bg-gray-50 dark:bg-gray-900 p-4 rounded-xl border border-gray-100 dark:border-gray-700">
-                  <h3 className="font-bold text-gray-900 dark:text-gray-100 mb-3 flex items-center gap-2"><Ticket size={16} /> Bilet Seçenekleri</h3>
-                  <div className="space-y-2">
-                    {selectedEvent.ticket_details.map((t, idx) => (
-                      <div key={idx} className="flex justify-between items-center p-3 bg-white dark:bg-gray-800 rounded-lg shadow-sm">
-                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t.name}</span>
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-black text-brand">{formatPrice(t.price)}</span>
-                          {t.status && <span className="text-[10px] uppercase font-bold text-gray-400 bg-gray-100 dark:bg-gray-700 px-1.5 rounded">{t.status}</span>}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div className="pt-4 border-t dark:border-gray-700">
-                <div className="text-xs font-bold text-gray-400 mb-2 uppercase flex items-center gap-1"><Share2 size={12} /> Paylaş</div>
-                <div className="flex gap-2">
-                  <button onClick={() => handleShare(selectedEvent, 'whatsapp')} className="p-2 bg-[#25D366]/10 text-[#25D366] rounded-lg hover:bg-[#25D366]/20 transition"><MessageCircle size={20} /></button>
-                  <button onClick={() => handleShare(selectedEvent, 'instagram')} className="p-2 bg-[#E1306C]/10 text-[#E1306C] rounded-lg hover:bg-[#E1306C]/20 transition"><Instagram size={20} /></button>
-                  <button onClick={() => handleShare(selectedEvent, 'twitter')} className="p-2 bg-[#1DA1F2]/10 text-[#1DA1F2] rounded-lg hover:bg-[#1DA1F2]/20 transition"><Twitter size={20} /></button>
-                  <button onClick={() => handleShare(selectedEvent)} className="p-2 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-lg"><Share2 size={20} /></button>
-                </div>
-              </div>
-
-              <div>
-                <div className="text-xs font-bold text-gray-400 mb-2 uppercase flex items-center gap-1"><CalendarPlus size={12} /> Takvime Ekle</div>
-                <div className="flex gap-2">
-                  <button onClick={() => addToCalendar(selectedEvent, 'google')} className="flex items-center gap-1 bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-200 px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-blue-100 transition">Google Calendar</button>
-                  <button onClick={() => addToCalendar(selectedEvent, 'ical')} className="flex items-center gap-1 bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200 px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-gray-200 transition">Apple / iCaL (.ics)</button>
-                </div>
-              </div>
-
-              {/* USER REVIEWS SECTION */}
-              <div className="pt-4 border-t dark:border-gray-700">
-                <div className="flex justify-between items-center mb-3">
-                  <div className="text-xs font-bold text-gray-400 uppercase flex items-center gap-1">
-                    <Star size={12} /> Kullanıcı Yorumları ({eventReviews.length})
-                  </div>
-                  {user && (
-                    <button
-                      onClick={() => setShowReviewForm(!showReviewForm)}
-                      className="text-xs font-bold text-brand hover:text-brand-dark flex items-center gap-1"
-                    >
-                      {showReviewForm ? 'İptal' : '+ Yorum Yap'}
-                    </button>
-                  )}
-                </div>
-
-                {/* Review Form */}
-                {showReviewForm && (
-                  <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-xl mb-4 space-y-3">
-                    <div>
-                      <label className="text-xs font-bold text-gray-500 mb-1 block">Puanınız</label>
-                      <div className="flex gap-1">
-                        {[1, 2, 3, 4, 5].map((star) => (
-                          <button
-                            key={star}
-                            onClick={() => setReviewForm({ ...reviewForm, rating: star })}
-                            className="p-1 transition-transform hover:scale-110"
-                          >
-                            <Star
-                              size={24}
-                              className={star <= reviewForm.rating ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300 dark:text-gray-600'}
-                            />
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div>
-                      <label className="text-xs font-bold text-gray-500 mb-1 block">Yorumunuz</label>
-                      <textarea
-                        value={reviewForm.comment}
-                        onChange={(e) => setReviewForm({ ...reviewForm, comment: e.target.value })}
-                        placeholder="Bu etkinlik hakkında düşüncelerinizi paylaşın..."
-                        className="w-full border border-gray-200 dark:border-gray-700 rounded-lg p-3 text-sm resize-none h-24 dark:bg-gray-900 focus:ring-2 focus:ring-brand outline-none"
-                        maxLength={500}
-                      />
-                      <div className="text-[10px] text-gray-400 text-right">{reviewForm.comment.length}/500</div>
-                    </div>
-                    <button
-                      onClick={handleSubmitReview}
-                      disabled={submittingReview}
-                      className="w-full bg-brand text-white py-2 rounded-lg font-bold text-sm hover:bg-brand-dark transition disabled:opacity-50"
-                    >
-                      {submittingReview ? 'Gönderiliyor...' : 'Yorumu Gönder'}
-                    </button>
-                  </div>
-                )}
-
-                {/* Reviews List */}
-                {eventReviews.length > 0 ? (
-                  <div className="space-y-3 max-h-48 overflow-y-auto">
-                    {eventReviews.map((review) => (
-                      <div key={review.id} className="bg-gray-50 dark:bg-gray-800 p-3 rounded-xl">
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-1">
-                            {[1, 2, 3, 4, 5].map((star) => (
-                              <Star
-                                key={star}
-                                size={12}
-                                className={star <= review.rating ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'}
-                              />
-                            ))}
-                          </div>
-                          <span className="text-[10px] text-gray-400">
-                            {new Date(review.created_at).toLocaleDateString('tr-TR')}
-                          </span>
-                        </div>
-                        <p className="text-sm text-gray-700 dark:text-gray-300">{review.comment}</p>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-4 text-sm text-gray-400">
-                    Henüz yorum yapılmamış. {user ? 'İlk yorumu sen yap!' : 'Yorum yapmak için giriş yap.'}
-                  </div>
-                )}
-              </div>
-
-              {/* DISCLAIMER */}
-              <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-3 mt-2">
-                <p className="text-[11px] text-amber-700 dark:text-amber-300 leading-relaxed">
-                  <strong>⚠️ Uyarı:</strong> 18-23, etkinlik organizatörü değildir. Detaylı bilgi ve güncel fiyatlar için lütfen bilet satış sayfasını ziyaret ediniz.
-                </p>
-              </div>
-            </div>
-
-            <div className="p-4 border-t border-gray-100 dark:border-gray-700 bg-white dark:bg-gray-800 flex items-center gap-3 shrink-0 pb-8 md:pb-4">
-              <button onClick={(e) => toggleFavorite(e, selectedEvent.id, selectedEvent.category)} className="p-3 rounded-xl bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 transition"><Heart size={24} className={favorites.includes(selectedEvent.id) ? "fill-brand text-brand" : ""} /></button>
-              {selectedEvent.sold_out ? (
-                <div className="flex-1 bg-gray-300 dark:bg-gray-700 text-gray-500 font-bold py-3 rounded-xl flex items-center justify-center gap-2 cursor-not-allowed"><Ban size={20} /> TÜKENDİ</div>
-              ) : (
-                <button onClick={(e) => openTicket(e, selectedEvent.ticket_url)} className="flex-1 bg-brand hover:bg-brand-dark text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 shadow-lg transition transform active:scale-95"><Ticket size={20} />{selectedEvent.price?.toLowerCase().includes('ücretsiz') || selectedEvent.price === '0' ? 'ÜCRETSİZ KATIL' : `BİLET AL (${formatPrice(selectedEvent.price)})`}</button>
-              )}
-              <button onClick={(e) => openDirections(e, selectedEvent)} className="p-3 rounded-xl bg-black dark:bg-white dark:text-black text-white hover:bg-gray-800 transition" title="Yol Tarifi"><Navigation size={24} /></button>
-            </div>
-          </div>
-        </div>
-      )}
+      <EventDetailModal
+        selectedEvent={selectedEvent}
+        onClose={() => setSelectedEvent(null)}
+        followedVenues={followedVenues}
+        toggleFollow={toggleFollow}
+        setShowVenueEventsModal={setShowVenueEventsModal}
+        handleShare={handleShare}
+        addToCalendar={addToCalendar}
+        user={user}
+        eventReviews={eventReviews}
+        showReviewForm={showReviewForm}
+        setShowReviewForm={setShowReviewForm}
+        reviewForm={reviewForm}
+        setReviewForm={setReviewForm}
+        handleSubmitReview={handleSubmitReview}
+        submittingReview={submittingReview}
+        favorites={favorites}
+        toggleFavorite={toggleFavorite}
+        openTicket={openTicket}
+        openDirections={openDirections}
+      />
 
       <header className="h-[70px] bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-4 md:px-6 flex justify-between items-center z-50 shrink-0 shadow-sm">
         <div className="flex items-center gap-3 md:gap-4">
@@ -1394,89 +945,15 @@ END:VCALENDAR`;
             )}
 
             {/* EVENT CARDS */}
-            {!loading && events.map((event) => {
-              const isRecommended = userPrefs.includes(event.category);
-              const isFav = favorites.includes(event.id);
-              const isSoldOut = event.sold_out;
-
-              return (
-                <div 
-                  key={event.id} 
-                  onClick={() => onEventSelect(event)} 
-                  className={`group bg-white dark:bg-gray-800 rounded-3xl cursor-pointer transition-all border border-gray-100 dark:border-gray-700 relative overflow-hidden flex flex-row md:flex-col items-stretch h-36 md:h-auto hover:shadow-xl hover:border-brand/40 outline-none ${event.is_featured ? 'ring-2 ring-yellow-400 shadow-md' : ''}`}
-                >
-                  {/* Badges */}
-                  {event.is_featured && (
-                    <div className="absolute top-2 left-2 z-10 bg-gradient-to-r from-yellow-400 to-orange-500 text-white text-[9px] font-black px-2 py-0.5 rounded-full shadow-md flex items-center gap-1">
-                      ⭐ ÖNE ÇIKAN
-                    </div>
-                  )}
-
-                  {/* Recommendation Match Badge */}
-                  {event.matchScore && (
-                    <div className="absolute top-2 right-2 z-10 bg-black/75 backdrop-blur text-white text-[10px] font-black px-2 py-0.5 rounded-full shadow border border-white/20 flex items-center gap-1">
-                      <span className="text-amber-400">🎯</span> %{event.matchScore} Uyum
-                    </div>
-                  )}
-
-                  {/* Image */}
-                  {event.image_url && (
-                    <div className="w-32 h-full md:w-full md:h-44 bg-brand shrink-0 relative flex items-center justify-center overflow-hidden">
-                      <img src={event.image_url} alt={event.title} className={`w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 ${isSoldOut ? 'grayscale' : ''}`} />
-                      {isSoldOut && <div className="absolute inset-0 bg-black/50 flex items-center justify-center"><span className="text-[10px] font-bold text-white bg-red-600 px-1 rounded">TÜKENDİ</span></div>}
-                      <div className="absolute bottom-2 left-2 bg-black/60 backdrop-blur text-white text-[10px] font-bold px-2 py-0.5 rounded uppercase hidden md:block">{event.category}</div>
-                    </div>
-                  )}
-
-                  {/* Content */}
-                  <div className="p-3 md:p-4 flex-1 min-w-0 flex flex-col justify-between space-y-1">
-                    <div>
-                      <div className="flex justify-between items-start gap-1">
-                        <span className="text-[10px] font-bold uppercase text-gray-400 bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded md:hidden truncate">{event.category}</span>
-                        <span className="text-xs font-black text-brand bg-red-50 dark:bg-red-900/30 px-2 py-0.5 rounded whitespace-nowrap ml-auto">{event.price === '0' || event.price?.toLowerCase().includes('ücretsiz') ? 'Ücretsiz' : formatPrice(event.price)}</span>
-                      </div>
-
-                      <h3 className="font-bold text-sm md:text-base text-gray-900 dark:text-white leading-snug line-clamp-2 mt-1 group-hover:text-brand transition-colors">
-                        {event.title}
-                      </h3>
-
-                      <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1.5 mt-1 truncate">
-                        <MapPin size={12} className="text-brand shrink-0" /> 
-                        <span className="truncate">{event.venue_name}</span>
-                        {event.walkMinutes && (
-                          <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 rounded shrink-0">
-                            🚶 {event.walkMinutes} dk
-                          </span>
-                        )}
-                      </div>
-
-                      {event.summary && (
-                        <div className="text-xs text-gray-600 dark:text-gray-300 font-medium mt-1.5 line-clamp-1 leading-relaxed hidden sm:block">
-                          ✨ {event.summary}
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="flex justify-between items-end pt-1 border-t border-gray-100 dark:border-gray-800">
-                      <div className="min-w-0">
-                        <div className="text-[11px] text-gray-400 font-medium">{formatDateRange(event.start_time, event.end_time)}</div>
-                        <SourceLine event={event} compact />
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        {event.ticket_sources && event.ticket_sources.length > 1 && (
-                          <span className="text-[10px] bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 px-1.5 py-0.5 rounded font-bold">
-                            {event.ticket_sources.length} Sağlayıcı
-                          </span>
-                        )}
-                        <button onClick={(e) => toggleFavorite(e, event.id, event.category)} className="p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400 relative">
-                          <Heart size={16} className={isFav ? "fill-brand text-brand" : ""} />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )
-            })}
+            {!loading && events.map((event) => (
+              <EventCard
+                key={event.id}
+                event={event}
+                isFav={favorites.includes(event.id)}
+                onEventSelect={onEventSelect}
+                toggleFavorite={toggleFavorite}
+              />
+            ))}
 
             {/* Action Bar Footer */}
             <div className="flex flex-wrap justify-center gap-2.5 py-6 border-t dark:border-gray-700 mt-4">

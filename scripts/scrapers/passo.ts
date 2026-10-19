@@ -1,5 +1,5 @@
 
-import { Scraper, Event, TicketDetail } from './types.js';
+import { Scraper, Event } from './types.js';
 import { getBrowser, normalizeDate, sleep, dismissPopups, safeNavigate } from './utils.js';
 
 // All Passo category URLs with proper category mapping
@@ -118,7 +118,6 @@ async function scrapeEventDetail(browser: any, url: string, category: string): P
 
         // Extract all event information
         const eventInfo = await page.evaluate(() => {
-            const getText = (sel: string) => document.querySelector(sel)?.textContent?.trim() || '';
             const getMeta = (prop: string) => document.querySelector(`meta[property="${prop}"]`)?.getAttribute('content') || '';
 
             // Title

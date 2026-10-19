@@ -132,7 +132,6 @@ export default async function EventPage({ params }: { params: Promise<{ id: stri
         <div className="rounded-3xl overflow-hidden bg-brand aspect-[16/9] relative">
           {event.image_url ? (
             // Görseller bilet sitelerinden geliyor; next/image için remotePatterns listesi tutmamak adına düz <img>
-            // eslint-disable-next-line @next/next/no-img-element
             <img src={event.image_url} alt={event.title} className={`w-full h-full object-cover ${event.sold_out || isPast ? 'grayscale' : ''}`} />
           ) : (
             <div className="w-full h-full flex items-center justify-center text-white/60 font-black text-6xl tracking-tighter">18-23</div>

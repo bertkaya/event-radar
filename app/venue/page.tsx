@@ -24,20 +24,6 @@ export default function VenuePortal() {
     description: '', maps_url: '', image_url: '', ticket_url: ''
   })
 
-  useEffect(() => {
-    checkUser()
-  }, [])
-
-  const checkUser = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      router.push('/login') // Giriş yapmamışsa login'e at
-      return
-    }
-    setUser(user)
-    fetchMyEvents(user.id)
-  }
-
   const fetchMyEvents = async (userId: string) => {
     // Sadece bu kullanıcının eklediği etkinlikleri çek
     const { data } = await supabase
@@ -49,6 +35,19 @@ export default function VenuePortal() {
     if (data) setEvents(data)
     setLoading(false)
   }
+
+  useEffect(() => {
+    const checkUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        router.push('/login') // Giriş yapmamışsa login'e at
+        return
+      }
+      setUser(user)
+      fetchMyEvents(user.id)
+    }
+    checkUser()
+  }, [router])
 
   const extractCoordsFromLink = () => {
     const url = formData.maps_url;
@@ -199,7 +198,7 @@ export default function VenuePortal() {
               </div>
 
               <div className="w-16 h-16 bg-gray-100 rounded-lg overflow-hidden shrink-0">
-                 {event.image_url ? <img src={event.image_url} className="w-full h-full object-cover"/> : <ImageIcon className="m-auto mt-4 text-gray-300"/>}
+                 {event.image_url ? <img src={event.image_url} alt={event.title} className="w-full h-full object-cover"/> : <ImageIcon className="m-auto mt-4 text-gray-300"/>}
               </div>
 
               <div className="flex-1 min-w-0">

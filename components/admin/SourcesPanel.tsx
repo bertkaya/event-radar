@@ -52,7 +52,6 @@ export default function SourcesPanel() {
     setCounts(Object.fromEntries(integrated.map((c, i) => [c.id, res[i].count || 0])))
   }, [])
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- mount'ta veri çekme
   useEffect(() => { load() }, [load])
 
   const toggle = async (source: string) => {

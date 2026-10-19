@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
 import { Calendar, ChevronLeft, MapPin, Clock } from 'lucide-react'
@@ -8,38 +9,36 @@ import type { Event } from '@/lib/types'
 export default function MyCalendar() {
   const [events, setEvents] = useState<Event[]>([])
   const [loading, setLoading] = useState(true)
-
-
-  async function fetchFavorites() {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      window.location.href = '/login'
-      return
-    }
-
-    const { data: favs } = await supabase
-      .from('favorites')
-      .select('event_id')
-      .eq('user_id', user.id)
-
-    if (favs && favs.length > 0) {
-      const ids = favs.map(f => f.event_id)
-      const { data: eventData } = await supabase
-        .from('events')
-        .select('*')
-        .in('id', ids)
-        .gte('start_time', new Date().toISOString())
-        .order('start_time', { ascending: true })
-
-      if (eventData) setEvents(eventData)
-    }
-    setLoading(false)
-  }
+  const router = useRouter()
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- mount'ta veri çekme
+    async function fetchFavorites() {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        router.push('/login')
+        return
+      }
+
+      const { data: favs } = await supabase
+        .from('favorites')
+        .select('event_id')
+        .eq('user_id', user.id)
+
+      if (favs && favs.length > 0) {
+        const ids = favs.map(f => f.event_id)
+        const { data: eventData } = await supabase
+          .from('events')
+          .select('*')
+          .in('id', ids)
+          .gte('start_time', new Date().toISOString())
+          .order('start_time', { ascending: true })
+
+        if (eventData) setEvents(eventData)
+      }
+      setLoading(false)
+    }
     fetchFavorites()
-  }, [])
+  }, [router])
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-black dark:text-white p-4">

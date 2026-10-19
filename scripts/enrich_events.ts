@@ -2,7 +2,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import dotenv from 'dotenv';
-import { Event } from './scrapers/types.js';
 
 dotenv.config({ path: '.env.local' });
 

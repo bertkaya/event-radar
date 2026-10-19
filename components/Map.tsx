@@ -77,11 +77,11 @@ function MapController({ selectedEvent, triggerLocate, manualLocation, onLocatio
       map.locate().on("locationfound", function (e) {
         if (map.getSize().x > 0) map.flyTo(e.latlng, 14, { animate: true }); else map.setView(e.latlng, 14, { animate: false });
         onLocationFound(e.latlng) // Ana sayfaya "buldum" de
-      }).on("locationerror", function (e) {
+      }).on("locationerror", function () {
         toast("Konum alınamadı. Lütfen manuel seçim yapın veya izinleri kontrol edin.");
       });
     }
-  }, [triggerLocate, map])
+  }, [triggerLocate, map, onLocationFound])
 
   return null
 }
@@ -99,7 +99,6 @@ interface MapProps {
 
 export default function Map({ events, selectedEvent, triggerLocate, markerMode, manualLocation, onEventSelect, onVenueClick, onLocationFound }: MapProps) {
   const [userPos, setUserPos] = useState<LatLng | null>(null)
-  const [showPopup, setShowPopup] = useState<string | null>(null)
   const [vectorFailed, setVectorFailed] = useState(false)
   const webgl = useMemo(() => hasWebGL(), [])
   const basemap = chooseBasemap({

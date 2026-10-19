@@ -1,7 +1,7 @@
 // lib/dedup.ts
 // Intelligent event deduplication and canonical event clustering engine
 
-import type { Event, TicketDetail } from './types';
+import type { Event } from './types';
 
 export interface TicketSource {
   source: string;

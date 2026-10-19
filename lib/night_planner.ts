@@ -40,10 +40,9 @@ export interface NightPlannerInput {
  * Builds realistic pre-event and post-event dining/cocktail suggestions
  * based on the city and the event venue's neighborhood.
  */
-function getSurroundingSpots(venueName: string, city: string, partyType: string) {
+function getSurroundingSpots(venueName: string, city: string) {
   const isKadikoy = venueName.toLowerCase().includes('kadıköy') || venueName.toLowerCase().includes('bostancı') || venueName.toLowerCase().includes('moda');
   const isBesiktas = venueName.toLowerCase().includes('beşiktaş') || venueName.toLowerCase().includes('zorlu') || venueName.toLowerCase().includes('bkm');
-  const isBeyoglu = venueName.toLowerCase().includes('beyoğlu') || venueName.toLowerCase().includes('modern') || venueName.toLowerCase().includes('karaköy');
   const isAnkara = city.toLowerCase().includes('ankara') || venueName.toLowerCase().includes('cso') || venueName.toLowerCase().includes('tunalı') || venueName.toLowerCase().includes('cermodern');
   const isIzmir = city.toLowerCase().includes('izmir') || venueName.toLowerCase().includes('alsancak') || venueName.toLowerCase().includes('havagazı');
 
@@ -150,7 +149,7 @@ export function generateNightPlans(events: Event[], input: NightPlannerInput): N
   // Build Plan A (Primary Recommendation)
   if (candidateEvents.length > 0) {
     const primaryEvent = candidateEvents[0];
-    const spots = getSurroundingSpots(primaryEvent.venue_name, input.city || 'İstanbul', input.partyType || 'date');
+    const spots = getSurroundingSpots(primaryEvent.venue_name, input.city || 'İstanbul');
 
     const eventDate = new Date(primaryEvent.start_time);
     const eventTimeStr = !isNaN(eventDate.getTime()) 
@@ -212,7 +211,6 @@ export function generateNightPlans(events: Event[], input: NightPlannerInput): N
   // Build Plan B (Alternative Plan if a 2nd candidate exists)
   if (candidateEvents.length > 1) {
     const secondEvent = candidateEvents[1];
-    const spots = getSurroundingSpots(secondEvent.venue_name, input.city || 'İstanbul', input.partyType || 'solo');
 
     const eventDate = new Date(secondEvent.start_time);
     const eventTimeStr = !isNaN(eventDate.getTime()) 

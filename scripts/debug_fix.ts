@@ -1,5 +1,5 @@
 
-import { getBrowser, closeBrowser } from './scrapers/utils.js';
+import { getBrowser } from './scrapers/utils.js';
 
 async function debugPasso() {
     const browser = await getBrowser();

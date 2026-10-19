@@ -1,5 +1,4 @@
 
-import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
 
 dotenv.config({ path: '.env.local' });
@@ -11,8 +10,6 @@ if (!supabaseUrl || !supabaseKey) {
     console.error('Missing Supabase credentials for migration.');
     process.exit(1);
 }
-
-const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function runMigration() {
     console.log('Running migration: Add min_price, summary, ai_tags, ai_mood columns...');

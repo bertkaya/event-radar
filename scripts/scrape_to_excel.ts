@@ -103,7 +103,7 @@ async function scrapeToExcel() {
         // Always close browser to release resources
         try {
             await closeBrowser();
-        } catch (e) {
+        } catch {
             // Ignore browser close errors
         }
         process.exit(0);

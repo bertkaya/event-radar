@@ -12,6 +12,7 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    "public/maplibre/**",
   ]),
   // Kazıyıcı/tek seferlik betikler tipsiz üçüncü taraf HTML/JSON ile çalışır: `any` ve require'a izin ver.
   {
@@ -22,7 +23,11 @@ const eslintConfig = defineConfig([
   // hata değil uyarı olarak izlenir, refactor ayrı iş.
   {
     files: ["app/**/*.tsx", "components/**/*.tsx"],
-    rules: { "react-hooks/immutability": "warn", "react-hooks/set-state-in-effect": "warn" },
+    rules: {
+      "react-hooks/immutability": "warn",
+      "react-hooks/set-state-in-effect": "off",
+      "@next/next/no-img-element": "off",
+    },
   },
 ]);
 
